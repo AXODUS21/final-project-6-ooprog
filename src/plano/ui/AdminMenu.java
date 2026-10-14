@@ -1,0 +1,430 @@
+package plano.ui;
+
+import plano.model.*;
+import plano.repository.DataStore;
+import plano.service.*;
+import plano.strategy.*;
+import plano.util.ConsoleIO;
+import plano.util.TableRenderer;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Administrative terminal interface with full system oversight, user management,
+ * category configuration, and analytical dashboards.
+ */
+public class AdminMenu {
+    private final DataStore dataStore;
+    private final AuthService authService;
+    private final UserService userService;
+    private final EventService eventService;
+    private final RegistrationService registrationService;
+    private final FeedbackService feedbackService;
+    private final ReportService reportService;
+
+    private EventSortStrategy currentSortStrategy = new SortByDateAscStrategy();
+    private final EventFilterCriteria activeFilterCriteria = new EventFilterCriteria();
+
+    public AdminMenu(DataStore dataStore, AuthService authService, UserService userService,
+                     EventService eventService, RegistrationService registrationService,
+                     FeedbackService feedbackService, ReportService reportService) {
+        this.dataStore = dataStore;
+        this.authService = authService;
+        this.userService = userService;
+        this.eventService = eventService;
+        this.registrationService = registrationService;
+        this.feedbackService = feedbackService;
+        this.reportService = reportService;
+    }
+
+    public void display() {
+        User admin = authService.getCurrentUser();
+        while (authService.isLoggedIn() && admin.isAdmin()) {
+            ConsoleIO.printBanner("PlanO - Administrator Portal", "Logged in as: " + admin.getFullName() + " (" + admin.getUsername() + ")");
+            System.out.println(" 1. Browse & Search All Events (Current Sort: " + currentSortStrategy.getName() + ")");
+            System.out.println(" 2. Create New Event (System-wide)");
+            System.out.println(" 3. Manage Any Event (Edit, Cancel, Change Status)");
+            System.out.println(" 4. View Attendee List & Perform Check-Ins");
+            System.out.println(" 5. View Event Reviews & Feedback");
+            System.out.println(" 6. User Management (View, Deactivate/Reactivate, Promote)");
+            System.out.println(" 7. Event Category Management");
+            System.out.println(" 8. System Reports & Analytical Dashboard");
+            System.out.println(" 9. Change Sorting Strategy / Filters");
+            System.out.println(" 0. Logout");
+            System.out.println();
+
+            int choice = ConsoleIO.readInt("Select an option", 0, 9);
+            switch (choice) {
+                case 1 -> browseEvents();
+                case 2 -> createEvent();
+                case 3 -> manageEvent();
+                case 4 -> manageCheckIns();
+                case 5 -> viewEventFeedback();
+                case 6 -> manageUsers();
+                case 7 -> manageCategories();
+                case 8 -> viewDashboard();
+                case 9 -> configureSortAndFilter();
+                case 0 -> {
+                    authService.logout();
+                    ConsoleIO.printSuccess("Logged out successfully.");
+                    return;
+                }
+            }
+        }
+    }
+
+    private void browseEvents() {
+        ConsoleIO.printSection("System Events Directory");
+        List<Event> events = eventService.getAllEvents();
+        events = eventService.filterEvents(events, activeFilterCriteria);
+        events = eventService.sortEvents(events, currentSortStrategy);
+
+        renderEventsTable(events);
+        ConsoleIO.pause();
+    }
+
+    private void renderEventsTable(List<Event> events) {
+        TableRenderer table = new TableRenderer(
+                "ID", "Title", "Category", "Venue", "Start Time", "Cap", "Confirmed", "Waitlist", "Status"
+        );
+
+        for (Event e : events) {
+            int confirmed = registrationService.getConfirmedCount(e.getEventId());
+            int waitlisted = registrationService.getWaitlistCount(e.getEventId());
+            String capStr = confirmed + "/" + e.getCapacity();
+            String startStr = e.getStartDateTime() != null ? e.getStartDateTime().format(ConsoleIO.DATE_TIME_FORMATTER) : "N/A";
+
+            table.addRow(
+                    e.getEventId(),
+                    e.getTitle(),
+                    e.getCategory(),
+                    e.getVenue(),
+                    startStr,
+                    String.valueOf(e.getCapacity()),
+                    capStr,
+                    String.valueOf(waitlisted),
+                    e.getStatus().getDisplayName()
+            );
+        }
+        table.render();
+    }
+
+    private void createEvent() {
+        ConsoleIO.printSection("Create New Event (Admin)");
+        String title = ConsoleIO.readNonEmptyString("Event Title");
+        String description = ConsoleIO.readString("Description");
+
+        // Category selection
+        List<Category> categories = dataStore.getCategoryRepository().findAll();
+        System.out.println(ConsoleIO.CYAN + "Available Categories:" + ConsoleIO.RESET);
+        for (int i = 0; i < categories.size(); i++) {
+            System.out.println("  " + (i + 1) + ". " + categories.get(i).getName());
+        }
+        int catIdx = ConsoleIO.readInt("Choose Category", 1, categories.size());
+        String category = categories.get(catIdx - 1).getName();
+
+        String venue = ConsoleIO.readNonEmptyString("Venue / Room");
+        LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
+        LocalDateTime end = ConsoleIO.readDateTime("End Date & Time", false);
+        int capacity = ConsoleIO.readPositiveInt("Attendee Capacity Limit");
+
+        EventService.EventResult res = eventService.createEvent(
+                authService.getCurrentUser(), title, description, category, venue, start, end, capacity
+        );
+
+        if (res.success) {
+            ConsoleIO.printSuccess(res.message);
+        } else {
+            ConsoleIO.printError(res.message);
+        }
+        ConsoleIO.pause();
+    }
+
+    private void manageEvent() {
+        ConsoleIO.printSection("Manage Event (Admin Oversight)");
+        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to manage (e.g. EVT-1001)");
+        Optional<Event> eventOpt = eventService.getEventById(eventId);
+        if (eventOpt.isEmpty()) {
+            ConsoleIO.printError("Event not found.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        Event event = eventOpt.get();
+        System.out.println("Selected: " + ConsoleIO.BOLD + event.getTitle() + " (" + event.getEventId() + ")" + ConsoleIO.RESET);
+        System.out.println("Current Status: " + event.getStatus().getDisplayName() + " | Venue: " + event.getVenue());
+        System.out.println("1. Edit Event Details");
+        System.out.println("2. Change Event Status (Upcoming / Ongoing / Completed)");
+        System.out.println("3. Cancel Event");
+        System.out.println("0. Back");
+
+        int choice = ConsoleIO.readInt("Action", 0, 3);
+        switch (choice) {
+            case 1 -> editEventDetails(event);
+            case 2 -> changeEventStatus(event);
+            case 3 -> {
+                if (ConsoleIO.readConfirmation("Are you sure you want to cancel event '" + event.getTitle() + "'?")) {
+                    EventService.EventResult res = eventService.cancelEvent(authService.getCurrentUser(), eventId);
+                    if (res.success) ConsoleIO.printSuccess(res.message);
+                    else ConsoleIO.printError(res.message);
+                }
+            }
+        }
+        ConsoleIO.pause();
+    }
+
+    private void editEventDetails(Event event) {
+        ConsoleIO.printSection("Edit Event: " + event.getTitle());
+        String title = ConsoleIO.readOptionalString("New Title", event.getTitle());
+        String desc = ConsoleIO.readOptionalString("New Description", event.getDescription());
+        String venue = ConsoleIO.readOptionalString("New Venue", event.getVenue());
+        LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", event.getStartDateTime());
+        LocalDateTime end = ConsoleIO.readOptionalDateTime("New End Time", event.getEndDateTime());
+        int cap = ConsoleIO.readOptionalPositiveInt("New Capacity Limit", event.getCapacity());
+
+        EventService.EventResult res = eventService.updateEvent(
+                authService.getCurrentUser(), event.getEventId(), title, desc, event.getCategory(),
+                venue, start, end, cap, event.getStatus()
+        );
+
+        if (res.success) ConsoleIO.printSuccess(res.message);
+        else ConsoleIO.printError(res.message);
+    }
+
+    private void changeEventStatus(Event event) {
+        System.out.println("Select New Status:");
+        System.out.println(" 1. UPCOMING");
+        System.out.println(" 2. ONGOING");
+        System.out.println(" 3. COMPLETED");
+        int opt = ConsoleIO.readInt("Choice", 1, 3);
+        EventStatus newStatus = switch (opt) {
+            case 1 -> EventStatus.UPCOMING;
+            case 2 -> EventStatus.ONGOING;
+            case 3 -> EventStatus.COMPLETED;
+            default -> event.getStatus();
+        };
+
+        EventService.EventResult res = eventService.updateEventStatus(authService.getCurrentUser(), event.getEventId(), newStatus);
+        if (res.success) ConsoleIO.printSuccess(res.message);
+        else ConsoleIO.printError(res.message);
+    }
+
+    private void manageCheckIns() {
+        ConsoleIO.printSection("Event Attendance & Check-In");
+        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID");
+        Optional<Event> eventOpt = eventService.getEventById(eventId);
+        if (eventOpt.isEmpty()) {
+            ConsoleIO.printError("Event not found.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        Event event = eventOpt.get();
+        List<Registration> regs = registrationService.getRegistrationsForEvent(eventId);
+
+        TableRenderer table = new TableRenderer("Reg ID", "User ID", "Name", "Email", "Status", "Checked-in Time");
+        for (Registration r : regs) {
+            Optional<User> uOpt = dataStore.getUserRepository().findById(r.getUserId());
+            String name = uOpt.map(User::getFullName).orElse("Unknown");
+            String email = uOpt.map(User::getEmail).orElse("Unknown");
+            String checkInStr = r.getCheckedInAt() != null ? r.getCheckedInAt().format(ConsoleIO.DATE_TIME_FORMATTER) : "-";
+            table.addRow(r.getRegistrationId(), r.getUserId(), name, email, r.getStatus().getDisplayName(), checkInStr);
+        }
+        table.render();
+
+        System.out.println("1. Check In an Attendee");
+        System.out.println("0. Return");
+        int ch = ConsoleIO.readInt("Select", 0, 1);
+        if (ch == 1) {
+            String attendeeUserId = ConsoleIO.readNonEmptyString("Enter Attendee User ID (e.g. USR-1004)");
+            RegistrationService.CheckInResult res = registrationService.checkInAttendee(authService.getCurrentUser(), eventId, attendeeUserId);
+            if (res.success) ConsoleIO.printSuccess(res.message);
+            else ConsoleIO.printError(res.message);
+        }
+        ConsoleIO.pause();
+    }
+
+    private void viewEventFeedback() {
+        ConsoleIO.printSection("Event Reviews & Post-Event Feedback");
+        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID");
+        Optional<Event> eventOpt = eventService.getEventById(eventId);
+        if (eventOpt.isEmpty()) {
+            ConsoleIO.printError("Event not found.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        List<Feedback> feedbacks = feedbackService.getFeedbackForEvent(eventId);
+        double avg = feedbackService.getAverageRating(eventId);
+
+        System.out.println(ConsoleIO.BOLD + "Event: " + eventOpt.get().getTitle() + ConsoleIO.RESET);
+        System.out.printf("Average Rating: %.2f / 5.00 (%d reviews)\n\n", avg, feedbacks.size());
+
+        TableRenderer table = new TableRenderer("Feedback ID", "User", "Rating", "Review Comment", "Date");
+        for (Feedback fb : feedbacks) {
+            Optional<User> u = dataStore.getUserRepository().findById(fb.getUserId());
+            String userName = u.map(User::getFullName).orElse(fb.getUserId());
+            String dt = fb.getSubmittedAt() != null ? fb.getSubmittedAt().format(ConsoleIO.DATE_TIME_FORMATTER) : "-";
+            table.addRow(fb.getFeedbackId(), userName, fb.getStarsDisplay() + " (" + fb.getRating() + ")", fb.getComment(), dt);
+        }
+        table.render();
+        ConsoleIO.pause();
+    }
+
+    private void manageUsers() {
+        ConsoleIO.printSection("User Accounts Management");
+        List<User> users = userService.getAllUsers();
+
+        TableRenderer table = new TableRenderer("User ID", "Username", "Full Name", "Email", "Role", "Active?");
+        for (User u : users) {
+            table.addRow(u.getUserId(), u.getUsername(), u.getFullName(), u.getEmail(),
+                    u.getRole().getDisplayName(), u.isActive() ? "Active" : "Deactivated");
+        }
+        table.render();
+
+        System.out.println("1. Deactivate a User Account");
+        System.out.println("2. Reactivate a User Account");
+        System.out.println("3. Promote an Attendee to Event Organizer");
+        System.out.println("0. Back");
+
+        int ch = ConsoleIO.readInt("Option", 0, 3);
+        if (ch == 1) {
+            String uid = ConsoleIO.readNonEmptyString("Enter User ID to deactivate");
+            UserService.OperationResult res = userService.deactivateUser(authService.getCurrentUser(), uid);
+            if (res.success) ConsoleIO.printSuccess(res.message);
+            else ConsoleIO.printError(res.message);
+        } else if (ch == 2) {
+            String uid = ConsoleIO.readNonEmptyString("Enter User ID to reactivate");
+            UserService.OperationResult res = userService.reactivateUser(authService.getCurrentUser(), uid);
+            if (res.success) ConsoleIO.printSuccess(res.message);
+            else ConsoleIO.printError(res.message);
+        } else if (ch == 3) {
+            String uid = ConsoleIO.readNonEmptyString("Enter User ID to promote to Organizer");
+            UserService.OperationResult res = userService.promoteToOrganizer(authService.getCurrentUser(), uid);
+            if (res.success) ConsoleIO.printSuccess(res.message);
+            else ConsoleIO.printError(res.message);
+        }
+        ConsoleIO.pause();
+    }
+
+    private void manageCategories() {
+        ConsoleIO.printSection("Event Categories");
+        List<Category> categories = dataStore.getCategoryRepository().findAll();
+
+        TableRenderer table = new TableRenderer("Category ID", "Name", "Description");
+        for (Category c : categories) {
+            table.addRow(c.getCategoryId(), c.getName(), c.getDescription());
+        }
+        table.render();
+
+        System.out.println("1. Add New Category");
+        System.out.println("2. Remove a Category");
+        System.out.println("0. Back");
+
+        int ch = ConsoleIO.readInt("Option", 0, 2);
+        if (ch == 1) {
+            String name = ConsoleIO.readNonEmptyString("Category Name");
+            if (dataStore.getCategoryRepository().existsByName(name)) {
+                ConsoleIO.printError("Category '" + name + "' already exists.");
+            } else {
+                String desc = ConsoleIO.readString("Category Description");
+                String id = dataStore.nextCategoryId();
+                dataStore.getCategoryRepository().add(new Category(id, name, desc));
+                dataStore.saveCategories();
+                ConsoleIO.printSuccess("Category '" + name + "' added successfully.");
+            }
+        } else if (ch == 2) {
+            String id = ConsoleIO.readNonEmptyString("Enter Category ID to remove");
+            if (dataStore.getCategoryRepository().delete(id)) {
+                dataStore.saveCategories();
+                ConsoleIO.printSuccess("Category removed.");
+            } else {
+                ConsoleIO.printError("Category not found.");
+            }
+        }
+        ConsoleIO.pause();
+    }
+
+    private void viewDashboard() {
+        ConsoleIO.printSection("System-Wide Analytical Reports & Dashboard");
+        ReportService.AdminDashboardData dash = reportService.getAdminDashboard();
+
+        System.out.println(ConsoleIO.BOLD + "📊 SYSTEM METRICS OVERVIEW" + ConsoleIO.RESET);
+        System.out.printf("  Total Events: %d  (Upcoming: %d | Completed: %d | Cancelled: %d)\n",
+                dash.totalEvents, dash.upcomingEvents, dash.completedEvents, dash.cancelledEvents);
+        System.out.printf("  Registered Users: %d  (Organizers: %d | Attendees: %d)\n",
+                dash.totalUsers, dash.totalOrganizers, dash.totalAttendees);
+        System.out.printf("  Total Active Registrations: %d  (Confirmed: %d | Waitlisted: %d)\n",
+                dash.totalRegistrations, dash.confirmedRegistrations, dash.waitlistedRegistrations);
+        System.out.printf("  Overall Attendance Rate: %.1f%%  (Checked-In: %d attendees)\n\n",
+                dash.overallAttendanceRate, dash.checkedInAttendees);
+
+        System.out.println(ConsoleIO.BOLD + "📈 CATEGORY POPULARITY (Total Registrations)" + ConsoleIO.RESET);
+        TableRenderer catTable = new TableRenderer("Category", "Registrations Hosted");
+        for (var entry : dash.categoryPopularity.entrySet()) {
+            catTable.addRow(entry.getKey(), String.valueOf(entry.getValue()));
+        }
+        catTable.render();
+
+        System.out.println(ConsoleIO.BOLD + "🏆 ORGANIZER ACTIVITY LEADERBOARD" + ConsoleIO.RESET);
+        TableRenderer orgTable = new TableRenderer("Organizer", "Username", "Events Created", "Total Registrations", "Checked-in Attendees");
+        for (ReportService.OrganizerStats s : dash.organizerStats) {
+            orgTable.addRow(s.getFullName(), s.getUsername(), String.valueOf(s.getEventCount()),
+                    String.valueOf(s.getTotalRegistrations()), String.valueOf(s.getTotalCheckedIn()));
+        }
+        orgTable.render();
+
+        ConsoleIO.pause();
+    }
+
+    private void configureSortAndFilter() {
+        ConsoleIO.printSection("Configure Search, Filter & Strategy Sorting");
+        System.out.println("Active Sort Strategy: " + ConsoleIO.BOLD + currentSortStrategy.getName() + ConsoleIO.RESET);
+        System.out.println("1. Date (Earliest First)");
+        System.out.println("2. Date (Latest First)");
+        System.out.println("3. Popularity (Most Registrations First)");
+        System.out.println("4. Alphabetical (Title A - Z)");
+        System.out.println("5. Capacity (Largest Venue First)");
+        System.out.println("6. Set Keyword Search / Category Filter");
+        System.out.println("7. Clear All Active Filters");
+        System.out.println("0. Back");
+
+        int choice = ConsoleIO.readInt("Choose option", 0, 7);
+        switch (choice) {
+            case 1 -> {
+                currentSortStrategy = new SortByDateAscStrategy();
+                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
+            }
+            case 2 -> {
+                currentSortStrategy = new SortByDateDescStrategy();
+                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
+            }
+            case 3 -> {
+                currentSortStrategy = new SortByPopularityStrategy();
+                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
+            }
+            case 4 -> {
+                currentSortStrategy = new SortByTitleStrategy();
+                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
+            }
+            case 5 -> {
+                currentSortStrategy = new SortByCapacityStrategy();
+                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
+            }
+            case 6 -> {
+                String kw = ConsoleIO.readString("Search keyword (title/description/venue, or leave blank)");
+                activeFilterCriteria.setTextQuery(kw);
+                String cat = ConsoleIO.readString("Category filter (or leave blank)");
+                activeFilterCriteria.setCategory(cat);
+                ConsoleIO.printSuccess("Filters applied.");
+            }
+            case 7 -> {
+                activeFilterCriteria.reset();
+                ConsoleIO.printSuccess("All filters cleared.");
+            }
+        }
+        ConsoleIO.pause();
+    }
+}

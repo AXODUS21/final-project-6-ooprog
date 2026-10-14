@@ -1,48 +1,183 @@
-Initial project proposal:
+# PlanO - Event Management System
 
-Group #: Group - 6
- Group Members: Axellerosh F. Lubi, Courtney Judge P. Fabello, Gavin Hadrian M. Lodor
- Section: C2B
-I. Introduction
-a. Project Overview:
-PlanO is a Java-based Event Management System that allows organizers to create and manage free events (conferences, seminars, workshops, meetups, community gatherings) while allowing users to discover, register for, and track events they're attending. It replaces manual, error-prone methods of event coordination — spreadsheets, group chats, paper sign-up sheets — with a centralized system that handles registration, capacity limits, scheduling, and post-event feedback in one place.
-b. Objective:
-PlanO aims to make organizing and attending events more structured, accessible, and reliable for schools, organizations, and communities that don't have access to enterprise-level event software. Specifically, the system aims to:
-Reduce coordination overhead for event organizers by centralizing event creation, registration tracking, and attendee management in a single system.
-Prevent common planning failures — overbooking, double-registration, scheduling conflicts — through built-in validation and capacity enforcement.
-Give attendees a reliable, organized way to discover events, register, and keep track of what they've signed up for, replacing scattered sign-up methods.
-Create accountability and continuous improvement through a post-event feedback and rating system, helping organizers improve future events.
-Distribute event management responsibly by separating system-level administration from day-to-day event organizing, so organizations can let multiple people run events without giving everyone full administrative control.
-Make structured event management accessible to smaller organizations (student orgs, community groups, small businesses) that can't afford commercial event platforms.
-II. System Features and Functionalities
-a. Core Functionalities:
-Create: Add new events (name, description, date/time, venue, category, capacity); register for an event (attendee); create user accounts (all roles).
-Read: Browse/search all events; filter/sort events by category, date, or popularity; view event details and remaining capacity; view a user's own registration history; view attendee list for an event (Organizer/Admin).
-Update: Edit event details (Organizer — own events only; Admin — any event); update user profile info; change/cancel a registration.
-Delete: Cancel/remove an event (Organizer — own events only; Admin — any event); remove/withdraw a registration; deactivate a user account (Admin).
-Additional operations:
-Capacity & waitlist management — once an event hits capacity, new registrants are placed on a waitlist and auto-promoted if a spot opens.
-Event search & filtering (by category, date range, location) — implemented via the Strategy pattern, so sorting/filtering logic (by date, popularity, alphabetical) can be swapped at runtime.
-Scheduling conflict detection — flags if an Organizer/Admin tries to book the same venue for overlapping times.
-Check-in / attendance tracking — Organizer/Admin marks attendees as "checked in" on the event day.
-Post-event feedback & ratings — attendees rate/review an event after it's marked completed.
-Admin reports/dashboard — total events, registrations per event, most popular categories, attendance rate (checked-in vs. registered), organizer activity.
-Input validation everywhere — required fields, future-only event dates, positive capacity values, valid email formats, duplicate registration prevention.
-III. Roles
-a. User Types and Permissions:
-Admin:
-Full system oversight — can view, edit, or delete any event, regardless of which Organizer created it.
-Manage user accounts across all roles (view, deactivate, promote a user to Organizer).
-View system-wide reports/dashboard analytics.
-Manage event categories.
-Organizer:
-Create, edit, and delete their own events only.
-View and manage attendee lists and check-ins for their own events.
-View reports/analytics limited to their own events.
-Cannot manage other organizers' events or manage user accounts.
-Regular User (Attendee):
-Browse and search available events.
-Register/RSVP for events (subject to capacity/waitlist).
-View and manage their own registrations (cancel, view status).
-Submit feedback/rating after attending an event.
-Cannot create, edit, or delete events, and cannot view other users' registrations.
+**Group #:** Group 6  
+**Section:** C2B  
+**Course:** Object-Oriented Programming (OOPROG)  
+**Group Members:**
+- Axellerosh F. Lubi
+- Courtney Judge P. Fabello
+- Gavin Hadrian M. Lodor
+
+---
+
+## I. Project Overview
+
+**PlanO** is a Java-based Event Management System built with pure Java SE (Standard Library, zero external dependencies). It provides organizations, academic clubs, and communities with a centralized platform to organize, register for, and track events.
+
+PlanO eliminates error-prone coordination methods (spreadsheets, group chats, paper sign-up sheets) through built-in capacity management, venue scheduling conflict detection, automated FIFO waitlists with instant promotions, attendance check-ins, post-event feedback ratings, and administrative dashboards.
+
+---
+
+## II. Key Features & Functionalities
+
+### 1. Role-Based Access Control (RBAC)
+PlanO separates administrative governance from day-to-day event operations across three distinct roles:
+- **Administrator (`ADMIN`):**
+  - Full system oversight: view, edit, or cancel any event across the entire system.
+  - User management: view all user accounts, deactivate/reactivate users, and promote attendees to organizers.
+  - Category management: add, edit, or remove event categories.
+  - System-wide analytical reports: view overall attendance rates, category popularity, and organizer leaderboards.
+- **Event Organizer (`ORGANIZER`):**
+  - Create, update, and cancel their **own** events.
+  - Manage attendee rosters and mark attendees as "Checked In" on event day.
+  - View scoped analytics, fill rates, attendance percentages, and post-event feedback ratings for their own events.
+- **Regular User / Attendee (`ATTENDEE`):**
+  - Discover and search upcoming public events with live filter and sorting strategies.
+  - RSVP and register for events with automatic capacity validation and waitlist placement.
+  - Manage personal registrations and withdraw/cancel reservations (which triggers auto-promotion for waitlisted users).
+  - Submit 1-to-5 star reviews and feedback comments for completed events attended.
+  - Manage personal profile details (name, email, password).
+
+---
+
+### 2. Design Patterns & Architecture
+- **Strategy Pattern (`plano.strategy`):**
+  - Used for dynamic event sorting and multi-criteria filtering at runtime.
+  - Interfaces: `EventSortStrategy` and `EventFilterStrategy`.
+  - Concrete Sort Strategies:
+    - `SortByDateAscStrategy`: Chronological order (earliest first).
+    - `SortByDateDescStrategy`: Reverse-chronological order (latest first).
+    - `SortByPopularityStrategy`: Ranks events by number of confirmed registrations descending.
+    - `SortByTitleStrategy`: Alphabetical order (A to Z).
+    - `SortByCapacityStrategy`: Ranks events by venue capacity descending.
+  - Users and admins can swap sorting strategies dynamically from the console UI.
+- **Repository Pattern (`plano.repository`):**
+  - Decouples in-memory domain collections from persistence storage.
+  - `UserRepository`, `EventRepository`, `RegistrationRepository`, `FeedbackRepository`, `CategoryRepository`.
+- **Pure Java JSON Persistence (`DataStore` & `SimpleJson`):**
+  - Implements a pure standard Java recursive-descent JSON parser and serializer.
+  - All data is saved automatically to human-readable JSON files in the `data/` directory (`users.json`, `events.json`, `registrations.json`, `feedbacks.json`, `categories.json`).
+  - Automatically seeds realistic test data on the first run.
+- **Scheduling Conflict Detection (`EventService`):**
+  - Detects overlapping time windows at the same venue for non-cancelled events (`start1 < end2 && end1 > start2`).
+  - Flags conflicts with exact conflicting event IDs, titles, and time intervals to prevent double-booking.
+- **Capacity & FIFO Waitlist Auto-Promotion (`RegistrationService`):**
+  - When an event hits maximum capacity, registrants are automatically placed on a FIFO waitlist with an assigned queue number.
+  - When a confirmed registrant cancels or withdraws, the system immediately promotes the first attendee in the waitlist queue to `CONFIRMED`.
+- **Attendance Check-In & Post-Event Reviews:**
+  - Organizers and Admins can check in confirmed attendees on the event day.
+  - Attendees can only submit reviews for events that have concluded (`COMPLETED`) and that they were registered for.
+
+---
+
+## III. Pre-Seeded Demo Accounts
+
+The system automatically initializes seed data on startup for testing:
+
+| Role | Username | Password | Full Name | Notes |
+|---|---|---|---|---|
+| **ADMIN** | `admin` | `admin123` | System Administrator | Full oversight, user management, system reports |
+| **ORGANIZER** | `courtney_org` | `org123` | Courtney Judge Fabello | Hosts EVT-1001, EVT-1002 (at capacity), EVT-1006 (completed) |
+| **ORGANIZER** | `gavin_org` | `org123` | Gavin Hadrian Lodor | Hosts EVT-1003, EVT-1004 |
+| **ATTENDEE** | `axellerosh` | `user123` | Axellerosh Lubi | Registered for EVT-1001, EVT-1002, EVT-1006 |
+| **ATTENDEE** | `john_doe` | `user123` | John Doe | Registered for EVT-1001, EVT-1002 |
+| **ATTENDEE** | `emily_watson` | `user123` | Emily Watson | **Waitlisted** at position #1 on EVT-1002 |
+
+> **Interactive Demo Tip:**
+> 1. Log in as `axellerosh` (`user123`).
+> 2. Go to **My Registrations** and cancel the registration for `EVT-1002` (Hands-on Microservices Lab).
+> 3. Observe the system notification: `emily_watson` is automatically promoted from the Waitlist to Confirmed!
+
+---
+
+## IV. Project Structure
+
+```
+finals/
+├── ReadMe.md                     # Project documentation
+├── run.sh                        # Bash script to compile and launch PlanO
+├── data/                         # Persistent JSON storage files
+│   ├── users.json
+│   ├── categories.json
+│   ├── events.json
+│   ├── registrations.json
+│   └── feedbacks.json
+├── src/
+│   └── plano/
+│       ├── Main.java             # Main application entry point
+│       ├── model/                # Domain models (POJOs)
+│       │   ├── Role.java
+│       │   ├── User.java
+│       │   ├── Category.java
+│       │   ├── EventStatus.java
+│       │   ├── Event.java
+│       │   ├── RegistrationStatus.java
+│       │   ├── Registration.java
+│       │   └── Feedback.java
+│       ├── strategy/             # Strategy Pattern implementations
+│       │   ├── EventSortStrategy.java
+│       │   ├── SortByDateAscStrategy.java
+│       │   ├── SortByDateDescStrategy.java
+│       │   ├── SortByPopularityStrategy.java
+│       │   ├── SortByTitleStrategy.java
+│       │   ├── SortByCapacityStrategy.java
+│       │   ├── EventFilterCriteria.java
+│       │   ├── EventFilterStrategy.java
+│       │   └── CompositeEventFilterStrategy.java
+│       ├── repository/           # Data access & persistence layer
+│       │   ├── DataStore.java
+│       │   ├── UserRepository.java
+│       │   ├── CategoryRepository.java
+│       │   ├── EventRepository.java
+│       │   ├── RegistrationRepository.java
+│       │   └── FeedbackRepository.java
+│       ├── service/              # Business logic & validation services
+│       │   ├── AuthService.java
+│       │   ├── UserService.java
+│       │   ├── EventService.java
+│       │   ├── RegistrationService.java
+│       │   ├── FeedbackService.java
+│       │   └── ReportService.java
+│       ├── util/                 # Terminal UI & parsing utilities
+│       │   ├── ConsoleIO.java
+│       │   ├── TableRenderer.java
+│       │   ├── InputValidator.java
+│       │   └── SimpleJson.java
+│       └── ui/                   # Terminal user interface controllers
+│           ├── MenuController.java
+│           ├── AdminMenu.java
+│           ├── OrganizerMenu.java
+│           └── AttendeeMenu.java
+└── test/
+    └── plano/
+        └── PlanOTest.java        # Comprehensive automated test suite (36 tests)
+```
+
+---
+
+## V. How to Compile and Run
+
+### Option 1: Using the Runner Script (Recommended)
+From the project root directory, run:
+```bash
+./run.sh
+```
+
+### Option 2: Using Standard Java Commands
+```bash
+# 1. Compile source files into bin/
+mkdir -p bin
+find src -name "*.java" > sources.txt
+javac -d bin @sources.txt
+rm -f sources.txt
+
+# 2. Run the application
+java -cp bin plano.Main
+```
+
+### Running the Automated Test Suite
+To execute the automated regression test suite covering all 36 test cases:
+```bash
+javac -d bin -sourcepath "src:test" test/plano/PlanOTest.java
+java -cp bin plano.PlanOTest
+```
