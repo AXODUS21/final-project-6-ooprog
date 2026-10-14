@@ -48,7 +48,7 @@ public class MenuController {
         while (running) {
             ConsoleIO.printBanner(
                     "PlanO - Event Management System",
-                    "Final Project • Group 6: Axellerosh Lubi, Courtney Fabello, Gavin Lodor (C2B)"
+                    "Welcome!!"
             );
 
             System.out.println(" 1. Log In to Account");
