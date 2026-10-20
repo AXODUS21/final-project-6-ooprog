@@ -229,7 +229,7 @@ public class AttendeeMenu {
         if (ch == 1) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to review");
             int rating = ConsoleIO.readInt("Rating (1 = Poor, 5 = Excellent)", 1, 5);
-            String comment = ConsoleIO.readNonEmptyString("Your Review Comments");
+            String comment = ConsoleIO.readComment("Your Review Comments");
 
             FeedbackService.FeedbackResult res = feedbackService.submitFeedback(user, eventId, rating, comment);
             if (res.success) ConsoleIO.printSuccess(res.message);

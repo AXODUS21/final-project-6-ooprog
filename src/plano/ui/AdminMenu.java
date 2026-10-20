@@ -114,8 +114,13 @@ public class AdminMenu {
 
     private void createEvent() {
         ConsoleIO.printSection("Create New Event (Admin)");
-        String title = ConsoleIO.readNonEmptyString("Event Title");
-        String description = ConsoleIO.readString("Description");
+        String title = ConsoleIO.readCancellableEventTitle("Event Title");
+        if (title == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
+        String description = ConsoleIO.readDescription("Description", 1000);
 
         // Category selection
         List<Category> categories = dataStore.getCategoryRepository().findAll();
@@ -126,7 +131,7 @@ public class AdminMenu {
         int catIdx = ConsoleIO.readInt("Choose Category", 1, categories.size());
         String category = categories.get(catIdx - 1).getName();
 
-        String venue = ConsoleIO.readNonEmptyString("Venue / Room");
+        String venue = ConsoleIO.readVenue("Venue / Room");
         LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
         LocalDateTime end = ConsoleIO.readDateTimeAfter("End Date & Time", start);
         int capacity = ConsoleIO.readPositiveInt("Attendee Capacity Limit");

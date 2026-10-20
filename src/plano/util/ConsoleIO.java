@@ -384,6 +384,62 @@ public class ConsoleIO {
         }
     }
 
+    public static String readCancellableEventTitle(String prompt) {
+        while (true) {
+            String val = readString(prompt + " (or type 'cancel' / '0' to abort)").trim();
+            if (val.equalsIgnoreCase("cancel") || val.equals("0")) {
+                return null;
+            }
+            if (InputValidator.isValidEventTitle(val)) {
+                return InputValidator.sanitizeSingleLine(val);
+            }
+            printError("Event title must be between 3 and 100 characters long (or type 'cancel' to exit).");
+        }
+    }
+
+    public static String readEventTitle(String prompt) {
+        while (true) {
+            String val = readNonEmptyString(prompt).trim();
+            if (InputValidator.isValidEventTitle(val)) {
+                return InputValidator.sanitizeSingleLine(val);
+            }
+            printError("Event title must be between 3 and 100 characters long.");
+        }
+    }
+
+    public static String readVenue(String prompt) {
+        while (true) {
+            String val = readNonEmptyString(prompt).trim();
+            if (InputValidator.isValidVenue(val)) {
+                return InputValidator.sanitizeSingleLine(val);
+            }
+            printError("Venue / Room must be between 2 and 100 characters long.");
+        }
+    }
+
+    public static String readDescription(String prompt, int maxLen) {
+        while (true) {
+            String val = readString(prompt + " (optional, max " + maxLen + " chars)");
+            if (val.isBlank()) {
+                return "";
+            }
+            if (val.trim().length() <= maxLen) {
+                return InputValidator.sanitizeSingleLine(val);
+            }
+            printError("Description cannot exceed " + maxLen + " characters.");
+        }
+    }
+
+    public static String readComment(String prompt) {
+        while (true) {
+            String val = readNonEmptyString(prompt);
+            if (InputValidator.isValidComment(val)) {
+                return InputValidator.sanitizeSingleLine(val);
+            }
+            printError("Review comment must be between 3 and 1,000 characters and cannot consist solely of repetitive characters or spam.");
+        }
+    }
+
     public static void pause() {
         System.out.println();
         System.out.print(DIM + "Press [Enter] to continue..." + RESET);

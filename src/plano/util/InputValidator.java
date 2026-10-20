@@ -69,8 +69,13 @@ public class InputValidator {
 
     public static boolean isValidComment(String comment) {
         if (comment == null) return false;
-        int len = comment.trim().length();
-        return len >= 3 && len <= 1000;
+        String trimmed = comment.trim();
+        int len = trimmed.length();
+        if (len < 3 || len > 1000) return false;
+        // Check for spam: repetitive single character (e.g. "aaaaa", ".....", "!!!!!")
+        if (trimmed.matches("^(.)\\1{4,}$")) return false;
+        // Must contain at least one letter or digit
+        return trimmed.matches(".*[a-zA-Z0-9].*");
     }
 
     public static boolean isValidCapacity(int capacity) {
@@ -137,6 +142,26 @@ public class InputValidator {
 
     public static boolean isValidTimeInterval(LocalDateTime start, LocalDateTime end) {
         return start != null && end != null && end.isAfter(start);
+    }
+
+    /**
+     * Enforces that an event lasts at least 15 minutes and at most 30 continuous days.
+     */
+    public static boolean isValidEventDuration(LocalDateTime start, LocalDateTime end) {
+        if (start == null || end == null || !end.isAfter(start)) {
+            return false;
+        }
+        long minutes = java.time.Duration.between(start, end).toMinutes();
+        return minutes >= 15 && minutes <= (30L * 24 * 60);
+    }
+
+    /**
+     * Sanitizes a string by replacing newline, tab, and control characters with spaces
+     * to preserve ASCII table layout and console rendering.
+     */
+    public static String sanitizeSingleLine(String text) {
+        if (text == null) return "";
+        return text.replaceAll("[\\r\\n\\t]+", " ").trim();
     }
 
     /**

@@ -407,6 +407,42 @@ public class PlanOTest {
         RegistrationService.RegistrationResult conflictReg = registrationService.register(attendee, overlapEvt.event.getEventId());
         assertTrue("Attendee registering for overlapping event is flagged with Schedule Conflict",
                 !conflictReg.success && conflictReg.message.contains("Schedule Conflict"));
+
+        // 12. Minimum duration enforcement (less than 15 mins rejected)
+        LocalDateTime shortStart = LocalDateTime.now().plusDays(70).withHour(10).withMinute(0);
+        LocalDateTime shortEnd = shortStart.plusMinutes(5); // 5 mins only
+        EventService.EventResult tooShortEvent = eventService.createEvent(
+                organizer, "Too Short Event", "Short", "Seminar",
+                "Room Q", shortStart, shortEnd, 20
+        );
+        assertTrue("Event duration under 15 minutes is rejected", !tooShortEvent.success);
+
+        // 13. Duplicate event detection for same organizer
+        EventService.EventResult dupOrgEvent = eventService.createEvent(
+                organizer, "Overlapping Parallel Event", "Parallel again", "Seminar",
+                "Hall Z", evt1Ref.getStartDateTime(), evt1Ref.getEndDateTime(), 50
+        );
+        assertTrue("Duplicate event for same organizer at same time & venue is rejected", !dupOrgEvent.success);
+
+        // 14. Safeguard against deactivating organizer with upcoming events
+        UserService userService = new UserService(dataStore);
+        User admin = dataStore.getUserRepository().findByUsername("admin").get();
+        UserService.OperationResult deactRes = userService.deactivateUser(admin, organizer.getUserId());
+        assertTrue("Deactivating an organizer with active upcoming events is prevented",
+                !deactRes.success && deactRes.message.contains("active upcoming event"));
+
+        // 15. Spam review comment detection
+        FeedbackService.FeedbackResult spamReview = feedbackService.submitFeedback(attendee, "EVT-1006", 5, "aaaaaaa");
+        assertTrue("Repetitive spam review comment is rejected", !spamReview.success);
+
+        // 16. Date range filter validation
+        EventFilterCriteria criteria = new EventFilterCriteria();
+        boolean badDateRange = criteria.setDateRange(LocalDateTime.now().plusDays(5), LocalDateTime.now());
+        assertTrue("Inverted date range filter (from > to) is rejected", !badDateRange);
+
+        // 17. Single-line sanitization
+        String sanitized = InputValidator.sanitizeSingleLine("Line1\nLine2\tLine3");
+        assertTrue("Single-line sanitization converts newlines and tabs to spaces", "Line1 Line2 Line3".equals(sanitized));
     }
 
     private static void testEmptyDatabaseAndNumericFormatting() {

@@ -58,6 +58,15 @@ public class EventFilterCriteria {
         this.toDate = toDate;
     }
 
+    public boolean setDateRange(LocalDateTime from, LocalDateTime to) {
+        if (from != null && to != null && from.isAfter(to)) {
+            return false;
+        }
+        this.fromDate = from;
+        this.toDate = to;
+        return true;
+    }
+
     public EventStatus getStatus() {
         return status;
     }

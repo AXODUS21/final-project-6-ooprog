@@ -77,6 +77,10 @@ public class RegistrationService {
             return new RegistrationResult(false, "Cannot register: This event has already concluded.", null, null);
         }
 
+        if (event.isOngoing() || (event.getStartDateTime() != null && event.getStartDateTime().isBefore(LocalDateTime.now()))) {
+            return new RegistrationResult(false, "Cannot register: Registration is closed because the event has already started.", null, null);
+        }
+
         if (event.getOrganizerId().equals(user.getUserId())) {
             return new RegistrationResult(false, "Organizers cannot register as attendees for their own events.", null, null);
         }
@@ -124,8 +128,13 @@ public class RegistrationService {
             message = "Registration successful! You have a CONFIRMED spot for '" + event.getTitle() + "'." +
                     (remaining > 0 ? " (" + remaining + " spots remaining)" : " (Event is now at full capacity)");
         } else {
+            int waitlistCount = dataStore.getRegistrationRepository().countWaitlistedByEvent(eventId);
+            int maxWaitlist = Math.max(50, event.getCapacity() * 2);
+            if (waitlistCount >= maxWaitlist) {
+                return new RegistrationResult(false, "The waitlist for this event is currently full (maximum " + maxWaitlist + " spots reached).", null, null);
+            }
             assignedStatus = RegistrationStatus.WAITLISTED;
-            int waitlistPos = dataStore.getRegistrationRepository().countWaitlistedByEvent(eventId) + 1;
+            int waitlistPos = waitlistCount + 1;
             message = "Event is currently at maximum capacity (" + event.getCapacity() + "/" + event.getCapacity() +
                     "). You have been added to the WAITLIST at position #" + waitlistPos +
                     ". If an attendee cancels, you will be automatically promoted!";
@@ -158,6 +167,17 @@ public class RegistrationService {
 
         if (reg.isCancelled()) {
             return new CancellationResult(false, "This registration is already cancelled.", null, null);
+        }
+
+        Optional<Event> eventOpt = dataStore.getEventRepository().findById(reg.getEventId());
+        if (eventOpt.isPresent()) {
+            Event ev = eventOpt.get();
+            if (ev.isOngoing() || ev.isCompleted()) {
+                return new CancellationResult(false, "Cannot cancel registration: The event is already ongoing or completed.", null, null);
+            }
+            if (ev.getStartDateTime() != null && ev.getStartDateTime().isBefore(LocalDateTime.now())) {
+                return new CancellationResult(false, "Cannot cancel registration: The event has already started.", null, null);
+            }
         }
 
         RegistrationStatus previousStatus = reg.getStatus();

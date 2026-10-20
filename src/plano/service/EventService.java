@@ -75,6 +75,21 @@ public class EventService {
             return new EventResult(false, "Event end time must be after the start time.", null);
         }
 
+        if (!InputValidator.isValidEventDuration(startDateTime, endDateTime)) {
+            return new EventResult(false, "Event duration must be at least 15 minutes and cannot exceed 30 days.", null);
+        }
+
+        // Check duplicate event for same organizer at the same time and venue
+        List<Event> myEvents = dataStore.getEventRepository().findByOrganizer(creator.getUserId());
+        for (Event e : myEvents) {
+            if (!e.isCancelled() && e.getTitle().equalsIgnoreCase(title.trim()) &&
+                    InputValidator.isVenueMatch(e.getVenue(), venue) &&
+                    InputValidator.doIntervalsOverlap(startDateTime, endDateTime, e.getStartDateTime(), e.getEndDateTime())) {
+                return new EventResult(false, "Duplicate Event: You already have an event titled '" + e.getTitle() +
+                        "' scheduled at this venue during this time.", null);
+            }
+        }
+
         // Check for Scheduling Conflict at the same venue
         List<Event> conflicts = dataStore.getEventRepository().findConflictingEvents(venue, startDateTime, endDateTime, null);
         if (!conflicts.isEmpty()) {
@@ -152,6 +167,10 @@ public class EventService {
 
         if (!InputValidator.isValidTimeInterval(newStart, newEnd)) {
             return new EventResult(false, "Event end time must be after the start time.", null);
+        }
+
+        if (!InputValidator.isValidEventDuration(newStart, newEnd)) {
+            return new EventResult(false, "Event duration must be at least 15 minutes and cannot exceed 30 days.", null);
         }
 
         // Check for Scheduling Conflict (excluding current event)

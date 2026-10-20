@@ -48,6 +48,10 @@ public class FeedbackService {
             return new FeedbackResult(false, "Feedback can only be submitted after the event has been marked as COMPLETED.", null);
         }
 
+        if (event.getEndDateTime() != null && event.getEndDateTime().isBefore(LocalDateTime.now().minusDays(90))) {
+            return new FeedbackResult(false, "Feedback submission period has expired (reviews must be submitted within 90 days of event completion).", null);
+        }
+
         // Validate user was not the organizer of this event
         if (event.getOrganizerId().equals(attendee.getUserId())) {
             return new FeedbackResult(false, "Organizers cannot submit reviews for their own events.", null);

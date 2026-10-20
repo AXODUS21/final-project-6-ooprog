@@ -1,5 +1,6 @@
 package plano.service;
 
+import plano.model.Event;
 import plano.model.Role;
 import plano.model.User;
 import plano.repository.DataStore;
@@ -40,6 +41,16 @@ public class UserService {
         }
 
         User target = targetOpt.get();
+        if (target.isOrganizer()) {
+            long upcomingCount = dataStore.getEventRepository().findByOrganizer(targetUserId).stream()
+                    .filter(Event::isUpcoming)
+                    .count();
+            if (upcomingCount > 0) {
+                return new OperationResult(false, "Cannot deactivate Organizer '" + target.getUsername() +
+                        "': They currently have " + upcomingCount + " active upcoming event(s). Please cancel or reassign their events first.");
+            }
+        }
+
         target.setActive(false);
         dataStore.saveUsers();
         return new OperationResult(true, "User '" + target.getUsername() + "' has been deactivated.");

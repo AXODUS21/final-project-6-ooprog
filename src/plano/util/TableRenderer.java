@@ -24,6 +24,7 @@ public class TableRenderer {
         List<String> row = new ArrayList<>();
         for (int i = 0; i < headers.size(); i++) {
             String cell = i < cells.length && cells[i] != null ? cells[i] : "";
+            cell = InputValidator.sanitizeSingleLine(cell);
             row.add(cell);
             if (cell.length() > maxColumnWidths.get(i)) {
                 maxColumnWidths.set(i, cell.length());
