@@ -4,6 +4,7 @@ import plano.model.*;
 import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.*;
+import plano.util.ConsoleIO;
 import plano.util.InputValidator;
 
 import java.io.File;
@@ -343,6 +344,12 @@ public class PlanOTest {
         AuthService.RegisterResult blankPass = authService.register("validuser1", "    ", "Blank Pass User", "blank@test.com", Role.ATTENDEE);
         assertTrue("Password with whitespace only is rejected", !blankPass.success);
 
+        AuthService.RegisterResult shortPass = authService.register("validuser1b", "ab1", "Short Pass User", "shortp@test.com", Role.ATTENDEE);
+        assertTrue("Password under 6 chars is rejected", !shortPass.success);
+
+        AuthService.RegisterResult noNumPass = authService.register("validuser1c", "password", "No Digit Pass User", "nonum@test.com", Role.ATTENDEE);
+        assertTrue("Password without digits is rejected", !noNumPass.success);
+
         // 3. Full name validation
         AuthService.RegisterResult numName = authService.register("validuser2", "pass123", "John123", "num@test.com", Role.ATTENDEE);
         assertTrue("Full name containing numbers is rejected", !numName.success);
@@ -370,6 +377,15 @@ public class PlanOTest {
                 "Room A", futureStart, futureEnd, 0
         );
         assertTrue("Creating an event with capacity <= 0 is rejected", !zeroCap.success);
+
+        // Event scheduled beyond 2-year horizon is rejected
+        LocalDateTime distantFutureStart = LocalDateTime.now().plusYears(3);
+        LocalDateTime distantFutureEnd = distantFutureStart.plusHours(2);
+        EventService.EventResult horizonEvt = eventService.createEvent(
+                organizer, "Distant Future Event", "Too far", "Conference",
+                "Hall Z", distantFutureStart, distantFutureEnd, 50
+        );
+        assertTrue("Event scheduled beyond 2-year horizon is rejected", !horizonEvt.success);
 
         // 7. Rescheduling an upcoming event into the past is rejected
         Event evt1 = dataStore.getEventRepository().findById("EVT-1001").get();
@@ -483,6 +499,14 @@ public class PlanOTest {
         assertTrue("'USR-1004' is valid User ID format", InputValidator.isValidUserId("USR-1004"));
         assertTrue("'REG-1001' is valid Registration ID format", InputValidator.isValidRegistrationId("REG-1001"));
         assertTrue("'CAT-101' is valid Category ID format", InputValidator.isValidCategoryId("CAT-101"));
+
+        // 6. Horizon and cancel token validators
+        assertTrue("Now plus 1 year is within horizon", InputValidator.isWithinMaxHorizon(LocalDateTime.now().plusYears(1)));
+        assertTrue("Now plus 3 years exceeds horizon", !InputValidator.isWithinMaxHorizon(LocalDateTime.now().plusYears(3)));
+        assertTrue("'cancel' is recognized as cancel token", ConsoleIO.isCancelToken("cancel"));
+        assertTrue("'0' is recognized as cancel token", ConsoleIO.isCancelToken("0"));
+        assertTrue("':back' is recognized as cancel token", ConsoleIO.isCancelToken(":back"));
+        assertTrue("'normal input' is not cancel token", !ConsoleIO.isCancelToken("normal input"));
     }
 
     private static void cleanDirectory(File dir) {

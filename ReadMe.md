@@ -150,7 +150,7 @@ finals/
 │           └── AttendeeMenu.java
 └── test/
     └── plano/
-        └── PlanOTest.java        # Comprehensive automated test suite (36 tests)
+        └── PlanOTest.java        # Comprehensive automated test suite (80 tests)
 ```
 
 ---
@@ -176,7 +176,7 @@ java -cp bin plano.Main
 ```
 
 ### Running the Automated Test Suite
-To execute the automated regression test suite covering all 36 test cases:
+To execute the automated regression test suite covering all 80 test cases:
 ```bash
 javac -d bin -sourcepath "src:test" test/plano/PlanOTest.java
 java -cp bin plano.PlanOTest

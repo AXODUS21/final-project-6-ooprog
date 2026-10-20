@@ -112,6 +112,7 @@ public class AttendeeMenu {
         }
 
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1002)");
+        if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
@@ -186,6 +187,7 @@ public class AttendeeMenu {
         int ch = ConsoleIO.readInt("Option", 0, 1);
         if (ch == 1) {
             String regId = ConsoleIO.readRegistrationId("Enter Registration ID to cancel (e.g. REG-1004)");
+            if (regId == null) return;
             if (ConsoleIO.readConfirmation("Are you sure you want to cancel this registration?")) {
                 RegistrationService.CancellationResult res = registrationService.cancelRegistration(user, regId);
                 if (res.success) {
@@ -228,8 +230,10 @@ public class AttendeeMenu {
         int ch = ConsoleIO.readInt("Option", 0, 1);
         if (ch == 1) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to review");
+            if (eventId == null) return;
             int rating = ConsoleIO.readInt("Rating (1 = Poor, 5 = Excellent)", 1, 5);
             String comment = ConsoleIO.readComment("Your Review Comments");
+            if (comment == null) return;
 
             FeedbackService.FeedbackResult res = feedbackService.submitFeedback(user, eventId, rating, comment);
             if (res.success) ConsoleIO.printSuccess(res.message);

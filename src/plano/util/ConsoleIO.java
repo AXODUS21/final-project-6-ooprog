@@ -71,6 +71,12 @@ public class ConsoleIO {
         System.out.println(CYAN + "ℹ " + message + RESET);
     }
 
+    public static boolean isCancelToken(String input) {
+        if (input == null) return false;
+        String s = input.trim();
+        return s.equalsIgnoreCase("cancel") || s.equals("0") || s.equalsIgnoreCase(":back") || s.equalsIgnoreCase("back");
+    }
+
     public static String readString(String prompt) {
         System.out.print(BOLD + prompt + ": " + RESET);
         if (scanner.hasNextLine()) {
@@ -132,8 +138,20 @@ public class ConsoleIO {
     }
 
     public static int readPositiveInt(String prompt, int maxLimit) {
+        Integer val = readCancellablePositiveInt(prompt, maxLimit);
+        return val != null ? val : 1;
+    }
+
+    public static Integer readCancellablePositiveInt(String prompt) {
+        return readCancellablePositiveInt(prompt, 50000);
+    }
+
+    public static Integer readCancellablePositiveInt(String prompt, int maxLimit) {
         while (true) {
-            String input = readString(prompt);
+            String input = readString(prompt + " (or type 'cancel' / '0' to abort)");
+            if (isCancelToken(input)) {
+                return null;
+            }
             if (input.isBlank()) {
                 printError("This field cannot be empty. Please enter a positive integer.");
                 continue;
@@ -205,13 +223,21 @@ public class ConsoleIO {
 
     public static LocalDateTime readDateTime(String prompt, boolean mustBeFuture) {
         while (true) {
-            System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (e.g. 2026-11-20 14:30)" + RESET);
+            System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (or 'cancel' to abort, e.g. 2026-11-20 14:30)" + RESET);
             String input = readNonEmptyString(prompt);
+            if (isCancelToken(input)) {
+                return null;
+            }
             try {
                 LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
                 if (mustBeFuture && dt.isBefore(LocalDateTime.now())) {
                     printError("Event date/time must be in the future (current time is " +
                             LocalDateTime.now().format(DATE_TIME_FORMATTER) + ").");
+                    continue;
+                }
+                if (mustBeFuture && !InputValidator.isWithinMaxHorizon(dt)) {
+                    printError("Event date/time cannot be scheduled more than " +
+                            InputValidator.MAX_EVENT_HORIZON_YEARS + " years in advance.");
                     continue;
                 }
                 return dt;
@@ -223,9 +249,12 @@ public class ConsoleIO {
 
     public static LocalDateTime readDateTimeAfter(String prompt, LocalDateTime afterDateTime) {
         while (true) {
-            System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (must be after " +
+            System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (or 'cancel' to abort, must be after " +
                     afterDateTime.format(DATE_TIME_FORMATTER) + ")" + RESET);
             String input = readNonEmptyString(prompt);
+            if (isCancelToken(input)) {
+                return null;
+            }
             try {
                 LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
                 if (!dt.isAfter(afterDateTime)) {
@@ -259,6 +288,11 @@ public class ConsoleIO {
                             LocalDateTime.now().format(DATE_TIME_FORMATTER) + ").");
                     continue;
                 }
+                if (mustBeFuture && !InputValidator.isWithinMaxHorizon(dt)) {
+                    printError("Date/time cannot be scheduled more than " +
+                            InputValidator.MAX_EVENT_HORIZON_YEARS + " years in advance.");
+                    continue;
+                }
                 return dt;
             } catch (DateTimeParseException e) {
                 printError("Invalid date/time format. Please use format: yyyy-MM-dd HH:mm");
@@ -290,7 +324,10 @@ public class ConsoleIO {
 
     public static String readEmail(String prompt) {
         while (true) {
-            String email = readNonEmptyString(prompt);
+            String email = readNonEmptyString(prompt + " (or type 'cancel' to return)");
+            if (isCancelToken(email)) {
+                return null;
+            }
             if (InputValidator.isValidEmail(email)) {
                 return email;
             }
@@ -316,7 +353,10 @@ public class ConsoleIO {
 
     public static String readUsername(String prompt) {
         while (true) {
-            String user = readNonEmptyString(prompt);
+            String user = readNonEmptyString(prompt + " (or type 'cancel' to return)");
+            if (isCancelToken(user)) {
+                return null;
+            }
             if (InputValidator.isValidUsername(user)) {
                 return user.trim();
             }
@@ -326,17 +366,23 @@ public class ConsoleIO {
 
     public static String readPassword(String prompt) {
         while (true) {
-            String pass = readNonEmptyString(prompt);
+            String pass = readNonEmptyString(prompt + " (or type 'cancel' to return)");
+            if (isCancelToken(pass)) {
+                return null;
+            }
             if (InputValidator.isValidPassword(pass)) {
                 return pass;
             }
-            printError("Password must be between 4 and 64 characters long and cannot consist solely of whitespace.");
+            printError("Password must be between 6 and 64 characters long, contain at least one letter and one number, and cannot consist solely of whitespace.");
         }
     }
 
     public static String readFullName(String prompt) {
         while (true) {
-            String name = readNonEmptyString(prompt);
+            String name = readNonEmptyString(prompt + " (or type 'cancel' to return)");
+            if (isCancelToken(name)) {
+                return null;
+            }
             if (InputValidator.isValidFullName(name)) {
                 return name.trim();
             }
@@ -346,48 +392,60 @@ public class ConsoleIO {
 
     public static String readEventId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt);
+            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
+            if (isCancelToken(id)) {
+                return null;
+            }
             if (InputValidator.isValidEventId(id)) {
                 return id.trim();
             }
-            printError("Invalid Event ID format (must match 'EVT-XXXX', e.g. EVT-1001).");
+            printError("Invalid Event ID format (must match 'EVT-XXXX', e.g. EVT-1001, or '0' to cancel).");
         }
     }
 
     public static String readUserId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt);
+            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
+            if (isCancelToken(id)) {
+                return null;
+            }
             if (InputValidator.isValidUserId(id)) {
                 return id.trim();
             }
-            printError("Invalid User ID format (must match 'USR-XXXX', e.g. USR-1004).");
+            printError("Invalid User ID format (must match 'USR-XXXX', e.g. USR-1004, or '0' to cancel).");
         }
     }
 
     public static String readRegistrationId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt);
+            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
+            if (isCancelToken(id)) {
+                return null;
+            }
             if (InputValidator.isValidRegistrationId(id)) {
                 return id.trim();
             }
-            printError("Invalid Registration ID format (must match 'REG-XXXX', e.g. REG-1004).");
+            printError("Invalid Registration ID format (must match 'REG-XXXX', e.g. REG-1004, or '0' to cancel).");
         }
     }
 
     public static String readCategoryId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt);
+            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
+            if (isCancelToken(id)) {
+                return null;
+            }
             if (InputValidator.isValidCategoryId(id)) {
                 return id.trim();
             }
-            printError("Invalid Category ID format (must match 'CAT-XXX', e.g. CAT-101).");
+            printError("Invalid Category ID format (must match 'CAT-XXX', e.g. CAT-101, or '0' to cancel).");
         }
     }
 
     public static String readCancellableEventTitle(String prompt) {
         while (true) {
             String val = readString(prompt + " (or type 'cancel' / '0' to abort)").trim();
-            if (val.equalsIgnoreCase("cancel") || val.equals("0")) {
+            if (isCancelToken(val)) {
                 return null;
             }
             if (InputValidator.isValidEventTitle(val)) {
@@ -409,7 +467,10 @@ public class ConsoleIO {
 
     public static String readVenue(String prompt) {
         while (true) {
-            String val = readNonEmptyString(prompt).trim();
+            String val = readNonEmptyString(prompt + " (or type 'cancel' to abort)").trim();
+            if (isCancelToken(val)) {
+                return null;
+            }
             if (InputValidator.isValidVenue(val)) {
                 return InputValidator.sanitizeSingleLine(val);
             }
@@ -432,7 +493,10 @@ public class ConsoleIO {
 
     public static String readComment(String prompt) {
         while (true) {
-            String val = readNonEmptyString(prompt);
+            String val = readNonEmptyString(prompt + " (or type 'cancel' to abort)");
+            if (isCancelToken(val)) {
+                return null;
+            }
             if (InputValidator.isValidComment(val)) {
                 return InputValidator.sanitizeSingleLine(val);
             }

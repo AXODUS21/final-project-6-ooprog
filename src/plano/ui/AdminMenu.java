@@ -128,13 +128,39 @@ public class AdminMenu {
         for (int i = 0; i < categories.size(); i++) {
             System.out.println("  " + (i + 1) + ". " + categories.get(i).getName());
         }
-        int catIdx = ConsoleIO.readInt("Choose Category", 1, categories.size());
+        System.out.println("  0. Cancel");
+        int catIdx = ConsoleIO.readInt("Choose Category", 0, categories.size());
+        if (catIdx == 0) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         String category = categories.get(catIdx - 1).getName();
 
         String venue = ConsoleIO.readVenue("Venue / Room");
+        if (venue == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
+        if (start == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         LocalDateTime end = ConsoleIO.readDateTimeAfter("End Date & Time", start);
-        int capacity = ConsoleIO.readPositiveInt("Attendee Capacity Limit");
+        if (end == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
+        Integer capacity = ConsoleIO.readCancellablePositiveInt("Attendee Capacity Limit");
+        if (capacity == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
 
         EventService.EventResult res = eventService.createEvent(
                 authService.getCurrentUser(), title, description, category, venue, start, end, capacity
@@ -157,6 +183,7 @@ public class AdminMenu {
         }
 
         String eventId = ConsoleIO.readEventId("Enter Event ID to manage (e.g. EVT-1001)");
+        if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
@@ -237,6 +264,7 @@ public class AdminMenu {
         }
 
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1001)");
+        if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
@@ -268,6 +296,7 @@ public class AdminMenu {
         int ch = ConsoleIO.readInt("Select", 0, 1);
         if (ch == 1) {
             String attendeeUserId = ConsoleIO.readUserId("Enter Attendee User ID (e.g. USR-1004)");
+            if (attendeeUserId == null) return;
             RegistrationService.CheckInResult res = registrationService.checkInAttendee(authService.getCurrentUser(), eventId, attendeeUserId);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
@@ -284,6 +313,7 @@ public class AdminMenu {
         }
 
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1001)");
+        if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
@@ -332,16 +362,19 @@ public class AdminMenu {
         int ch = ConsoleIO.readInt("Option", 0, 3);
         if (ch == 1) {
             String uid = ConsoleIO.readUserId("Enter User ID to deactivate (e.g. USR-1004)");
+            if (uid == null) return;
             UserService.OperationResult res = userService.deactivateUser(authService.getCurrentUser(), uid);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
         } else if (ch == 2) {
             String uid = ConsoleIO.readUserId("Enter User ID to reactivate (e.g. USR-1004)");
+            if (uid == null) return;
             UserService.OperationResult res = userService.reactivateUser(authService.getCurrentUser(), uid);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
         } else if (ch == 3) {
             String uid = ConsoleIO.readUserId("Enter User ID to promote to Organizer (e.g. USR-1004)");
+            if (uid == null) return;
             UserService.OperationResult res = userService.promoteToOrganizer(authService.getCurrentUser(), uid);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
@@ -384,6 +417,7 @@ public class AdminMenu {
                 return;
             }
             String id = ConsoleIO.readCategoryId("Enter Category ID to remove (e.g. CAT-101)");
+            if (id == null) return;
             Optional<Category> catOpt = dataStore.getCategoryRepository().findById(id);
             if (catOpt.isEmpty()) {
                 ConsoleIO.printError("Category not found with ID: " + id);

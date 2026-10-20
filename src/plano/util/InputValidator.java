@@ -29,6 +29,8 @@ public class InputValidator {
     private static final Pattern INTEGER_PATTERN = Pattern.compile("^0$|^[1-9]\\d*$");
     private static final Pattern POSITIVE_INTEGER_PATTERN = Pattern.compile("^[1-9]\\d*$");
 
+    public static final int MAX_EVENT_HORIZON_YEARS = 2;
+
     public static boolean isValidEmail(String email) {
         if (email == null) return false;
         return EMAIL_PATTERN.matcher(email.trim()).matches();
@@ -41,7 +43,11 @@ public class InputValidator {
 
     public static boolean isValidPassword(String password) {
         if (password == null) return false;
-        return password.length() >= 4 && password.length() <= 64 && !password.trim().isEmpty();
+        String trimmed = password.trim();
+        if (trimmed.length() < 6 || password.length() > 64) return false;
+        boolean hasLetter = trimmed.matches(".*[a-zA-Z].*");
+        boolean hasDigit = trimmed.matches(".*\\d.*");
+        return hasLetter && hasDigit;
     }
 
     public static boolean isValidFullName(String name) {
@@ -138,6 +144,14 @@ public class InputValidator {
 
     public static boolean isFuture(LocalDateTime dateTime) {
         return dateTime != null && dateTime.isAfter(LocalDateTime.now());
+    }
+
+    /**
+     * Checks if a scheduled date/time is within the allowable booking horizon (max 2 years).
+     */
+    public static boolean isWithinMaxHorizon(LocalDateTime dateTime) {
+        if (dateTime == null) return false;
+        return dateTime.isBefore(LocalDateTime.now().plusYears(MAX_EVENT_HORIZON_YEARS));
     }
 
     public static boolean isValidTimeInterval(LocalDateTime start, LocalDateTime end) {

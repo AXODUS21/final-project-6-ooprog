@@ -83,13 +83,39 @@ public class OrganizerMenu {
         for (int i = 0; i < categories.size(); i++) {
             System.out.println("  " + (i + 1) + ". " + categories.get(i).getName());
         }
-        int catIdx = ConsoleIO.readInt("Choose Category", 1, categories.size());
+        System.out.println("  0. Cancel");
+        int catIdx = ConsoleIO.readInt("Choose Category", 0, categories.size());
+        if (catIdx == 0) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         String category = categories.get(catIdx - 1).getName();
 
         String venue = ConsoleIO.readVenue("Venue / Room");
+        if (venue == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
+        if (start == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         LocalDateTime end = ConsoleIO.readDateTimeAfter("End Date & Time", start);
-        int capacity = ConsoleIO.readPositiveInt("Attendee Capacity Limit");
+        if (end == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
+        Integer capacity = ConsoleIO.readCancellablePositiveInt("Attendee Capacity Limit");
+        if (capacity == null) {
+            ConsoleIO.printWarning("Event creation cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
 
         EventService.EventResult res = eventService.createEvent(
                 authService.getCurrentUser(), title, description, category, venue, start, end, capacity
@@ -124,6 +150,7 @@ public class OrganizerMenu {
         int ch = ConsoleIO.readInt("Select", 0, 3);
         if (ch == 1) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to edit");
+            if (eventId == null) return;
             Optional<Event> evOpt = eventService.getEventById(eventId);
             if (evOpt.isPresent() && evOpt.get().getOrganizerId().equals(user.getUserId())) {
                 Event ev = evOpt.get();
@@ -148,6 +175,7 @@ public class OrganizerMenu {
             }
         } else if (ch == 2) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to change status");
+            if (eventId == null) return;
             System.out.println("1. UPCOMING | 2. ONGOING | 3. COMPLETED");
             int statOpt = ConsoleIO.readInt("Select Status", 1, 3);
             EventStatus st = statOpt == 1 ? EventStatus.UPCOMING : (statOpt == 2 ? EventStatus.ONGOING : EventStatus.COMPLETED);
@@ -156,6 +184,7 @@ public class OrganizerMenu {
             else ConsoleIO.printError(res.message);
         } else if (ch == 3) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to cancel");
+            if (eventId == null) return;
             if (ConsoleIO.readConfirmation("Are you sure you want to cancel this event?")) {
                 EventService.EventResult res = eventService.cancelEvent(user, eventId);
                 if (res.success) ConsoleIO.printSuccess(res.message);
@@ -178,6 +207,7 @@ public class OrganizerMenu {
 
         renderEventsTable(myEvents);
         String eventId = ConsoleIO.readEventId("Enter Event ID to view attendees & check in");
+        if (eventId == null) return;
         Optional<Event> evOpt = eventService.getEventById(eventId);
         if (evOpt.isEmpty() || !evOpt.get().getOrganizerId().equals(user.getUserId())) {
             ConsoleIO.printError("Event not found or unauthorized.");
@@ -207,6 +237,7 @@ public class OrganizerMenu {
         int ch = ConsoleIO.readInt("Select", 0, 1);
         if (ch == 1) {
             String attendeeUserId = ConsoleIO.readUserId("Enter Attendee User ID (e.g. USR-1004)");
+            if (attendeeUserId == null) return;
             RegistrationService.CheckInResult res = registrationService.checkInAttendee(user, eventId, attendeeUserId);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);

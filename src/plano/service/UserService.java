@@ -123,7 +123,7 @@ public class UserService {
 
         if (InputValidator.isNotEmpty(newPassword)) {
             if (!InputValidator.isValidPassword(newPassword)) {
-                return new OperationResult(false, "Password must be between 4 and 64 characters long and cannot consist solely of whitespace.");
+                return new OperationResult(false, "Password must be between 6 and 64 characters long, contain at least one letter and one number, and cannot consist solely of whitespace.");
             }
             user.setPassword(newPassword);
         }

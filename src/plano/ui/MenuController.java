@@ -81,8 +81,10 @@ public class MenuController {
             return;
         }
 
-        String username = ConsoleIO.readNonEmptyString("Username");
-        String password = ConsoleIO.readNonEmptyString("Password");
+        String username = ConsoleIO.readNonEmptyString("Username (or '0' to return)");
+        if (ConsoleIO.isCancelToken(username)) return;
+        String password = ConsoleIO.readNonEmptyString("Password (or 'cancel' to return)");
+        if (ConsoleIO.isCancelToken(password)) return;
 
         AuthService.LoginResult res = authService.login(username, password);
         if (res.success) {
@@ -108,10 +110,25 @@ public class MenuController {
     private void handleRegister() {
         ConsoleIO.printSection("Create New PlanO Account");
         String username = ConsoleIO.readUsername("Choose Username");
-        String password = ConsoleIO.readPassword("Choose Password (4 - 64 chars)");
+        if (username == null) {
+            ConsoleIO.printWarning("Registration cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
+        String password = ConsoleIO.readPassword("Choose Password (6 - 64 chars, letters & digits)");
+        if (password == null) {
+            ConsoleIO.printWarning("Registration cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
 
         while (true) {
-            String confirmPassword = ConsoleIO.readNonEmptyString("Confirm Password");
+            String confirmPassword = ConsoleIO.readNonEmptyString("Confirm Password (or 'cancel' to abort)");
+            if (ConsoleIO.isCancelToken(confirmPassword)) {
+                ConsoleIO.printWarning("Registration cancelled.");
+                ConsoleIO.pause();
+                return;
+            }
             if (password.equals(confirmPassword)) {
                 break;
             }
@@ -119,7 +136,17 @@ public class MenuController {
         }
 
         String fullName = ConsoleIO.readFullName("Your Full Name");
+        if (fullName == null) {
+            ConsoleIO.printWarning("Registration cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
         String email = ConsoleIO.readEmail("Your Email Address");
+        if (email == null) {
+            ConsoleIO.printWarning("Registration cancelled.");
+            ConsoleIO.pause();
+            return;
+        }
 
         System.out.println("Select Account Type:");
         System.out.println("  1. Regular User / Attendee (Discover & RSVP to events)");

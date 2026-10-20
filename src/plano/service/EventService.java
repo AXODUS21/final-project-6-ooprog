@@ -71,6 +71,11 @@ public class EventService {
             return new EventResult(false, "Event start time must be in the future.", null);
         }
 
+        if (!InputValidator.isWithinMaxHorizon(startDateTime)) {
+            return new EventResult(false, "Event cannot be scheduled more than " +
+                    InputValidator.MAX_EVENT_HORIZON_YEARS + " years in advance.", null);
+        }
+
         if (!InputValidator.isValidTimeInterval(startDateTime, endDateTime)) {
             return new EventResult(false, "Event end time must be after the start time.", null);
         }
@@ -163,6 +168,11 @@ public class EventService {
 
         if (startDateTime != null && event.isUpcoming() && !InputValidator.isFuture(newStart)) {
             return new EventResult(false, "Rescheduled event start time must be in the future.", null);
+        }
+
+        if (startDateTime != null && !InputValidator.isWithinMaxHorizon(newStart)) {
+            return new EventResult(false, "Event cannot be scheduled more than " +
+                    InputValidator.MAX_EVENT_HORIZON_YEARS + " years in advance.", null);
         }
 
         if (!InputValidator.isValidTimeInterval(newStart, newEnd)) {
