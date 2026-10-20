@@ -51,20 +51,20 @@ public class EventService {
             return new EventResult(false, "Access denied. Only Organizers or Administrators can create events.", null);
         }
 
-        if (!InputValidator.isNotEmpty(title)) {
-            return new EventResult(false, "Event title cannot be empty.", null);
+        if (!InputValidator.isValidEventTitle(title)) {
+            return new EventResult(false, "Event title must be between 3 and 100 characters.", null);
         }
 
-        if (!InputValidator.isNotEmpty(venue)) {
-            return new EventResult(false, "Event venue/location cannot be empty.", null);
+        if (!InputValidator.isValidVenue(venue)) {
+            return new EventResult(false, "Event venue/location must be between 2 and 100 characters.", null);
         }
 
-        if (!InputValidator.isNotEmpty(category)) {
-            return new EventResult(false, "Category cannot be empty.", null);
+        if (!InputValidator.isNotEmpty(category) || !dataStore.getCategoryRepository().existsByName(category.trim())) {
+            return new EventResult(false, "Category '" + category + "' does not exist in the system. Please select a valid category.", null);
         }
 
-        if (!InputValidator.isPositive(capacity)) {
-            return new EventResult(false, "Capacity must be greater than 0.", null);
+        if (!InputValidator.isValidCapacity(capacity)) {
+            return new EventResult(false, "Capacity must be between 1 and 50,000.", null);
         }
 
         if (!InputValidator.isFuture(startDateTime)) {
@@ -116,7 +116,14 @@ public class EventService {
             return new EventResult(false, "Access denied. You can only edit your own events.", null);
         }
 
+        if (event.isCancelled()) {
+            return new EventResult(false, "Cancelled events cannot be modified.", null);
+        }
+
         if (InputValidator.isNotEmpty(title)) {
+            if (!InputValidator.isValidEventTitle(title)) {
+                return new EventResult(false, "Event title must be between 3 and 100 characters.", null);
+            }
             event.setTitle(title.trim());
         }
 
@@ -125,12 +132,23 @@ public class EventService {
         }
 
         if (InputValidator.isNotEmpty(category)) {
+            if (!dataStore.getCategoryRepository().existsByName(category.trim())) {
+                return new EventResult(false, "Category '" + category + "' does not exist.", null);
+            }
             event.setCategory(category.trim());
         }
 
         String newVenue = InputValidator.isNotEmpty(venue) ? venue.trim() : event.getVenue();
+        if (InputValidator.isNotEmpty(venue) && !InputValidator.isValidVenue(newVenue)) {
+            return new EventResult(false, "Event venue/location must be between 2 and 100 characters.", null);
+        }
+
         LocalDateTime newStart = startDateTime != null ? startDateTime : event.getStartDateTime();
         LocalDateTime newEnd = endDateTime != null ? endDateTime : event.getEndDateTime();
+
+        if (startDateTime != null && event.isUpcoming() && !InputValidator.isFuture(newStart)) {
+            return new EventResult(false, "Rescheduled event start time must be in the future.", null);
+        }
 
         if (!InputValidator.isValidTimeInterval(newStart, newEnd)) {
             return new EventResult(false, "Event end time must be after the start time.", null);
@@ -152,6 +170,14 @@ public class EventService {
         event.setEndDateTime(newEnd);
 
         if (capacity > 0) {
+            int confirmedCount = dataStore.getRegistrationRepository().countConfirmedByEvent(eventId);
+            if (capacity < confirmedCount) {
+                return new EventResult(false, "Cannot reduce capacity to " + capacity +
+                        ". There are already " + confirmedCount + " confirmed attendees.", null);
+            }
+            if (capacity > 50000) {
+                return new EventResult(false, "Capacity exceeds maximum allowable limit (50,000).", null);
+            }
             event.setCapacity(capacity);
         }
 
@@ -200,6 +226,19 @@ public class EventService {
         Event event = eventOpt.get();
         if (requestingUser == null || (!requestingUser.isAdmin() && !event.getOrganizerId().equals(requestingUser.getUserId()))) {
             return new EventResult(false, "Access denied.", null);
+        }
+
+        if (event.isCancelled()) {
+            return new EventResult(false, "Cancelled events cannot be modified or reactivated.", null);
+        }
+
+        if (event.isCompleted() && newStatus != EventStatus.COMPLETED) {
+            return new EventResult(false, "Completed events cannot be reopened or changed to " + newStatus.getDisplayName() + ".", null);
+        }
+
+        if (newStatus == EventStatus.COMPLETED && event.getStartDateTime().isAfter(LocalDateTime.now())) {
+            return new EventResult(false, "Cannot mark event as COMPLETED before its scheduled start time (" +
+                    event.getStartDateTime().format(ConsoleIO.DATE_TIME_FORMATTER) + ").", null);
         }
 
         event.setStatus(newStatus);

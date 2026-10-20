@@ -105,10 +105,16 @@ public class AttendeeMenu {
 
     private void viewDetailsAndRegister() {
         ConsoleIO.printSection("Event Details & RSVP");
-        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID (e.g. EVT-1002)");
+        if (eventService.getAllEvents().isEmpty()) {
+            System.out.println("No events are currently scheduled in the system.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1002)");
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
-            ConsoleIO.printError("Event not found.");
+            ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
         }
@@ -179,7 +185,7 @@ public class AttendeeMenu {
         System.out.println("0. Return");
         int ch = ConsoleIO.readInt("Option", 0, 1);
         if (ch == 1) {
-            String regId = ConsoleIO.readNonEmptyString("Enter Registration ID to cancel (e.g. REG-1004)");
+            String regId = ConsoleIO.readRegistrationId("Enter Registration ID to cancel (e.g. REG-1004)");
             if (ConsoleIO.readConfirmation("Are you sure you want to cancel this registration?")) {
                 RegistrationService.CancellationResult res = registrationService.cancelRegistration(user, regId);
                 if (res.success) {
@@ -221,7 +227,7 @@ public class AttendeeMenu {
         System.out.println("0. Return");
         int ch = ConsoleIO.readInt("Option", 0, 1);
         if (ch == 1) {
-            String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to review");
+            String eventId = ConsoleIO.readEventId("Enter Event ID to review");
             int rating = ConsoleIO.readInt("Rating (1 = Poor, 5 = Excellent)", 1, 5);
             String comment = ConsoleIO.readNonEmptyString("Your Review Comments");
 
@@ -300,7 +306,7 @@ public class AttendeeMenu {
 
         if (ConsoleIO.readConfirmation("Would you like to update your profile details?")) {
             String newName = ConsoleIO.readOptionalString("New Full Name", user.getFullName());
-            String newEmail = ConsoleIO.readOptionalString("New Email", user.getEmail());
+            String newEmail = ConsoleIO.readOptionalEmail("New Email", user.getEmail());
             String newPass = ConsoleIO.readString("New Password (leave empty to keep current)");
 
             UserService.OperationResult res = userService.updateProfile(user.getUserId(), newName, newEmail, newPass);

@@ -31,6 +31,10 @@ public class AuthService {
     }
 
     public synchronized LoginResult login(String username, String password) {
+        if (dataStore.getUserRepository().size() == 0) {
+            return new LoginResult(false, "No registered accounts exist in the database. Please register an account first.", null);
+        }
+
         if (!InputValidator.isNotEmpty(username) || !InputValidator.isNotEmpty(password)) {
             return new LoginResult(false, "Username and password cannot be empty.", null);
         }
@@ -54,22 +58,19 @@ public class AuthService {
     }
 
     public synchronized RegisterResult register(String username, String password, String fullName, String email, Role role) {
-        if (!InputValidator.isNotEmpty(username)) {
-            return new RegisterResult(false, "Username cannot be empty.", null);
-        }
-        if (username.trim().length() < 3) {
-            return new RegisterResult(false, "Username must be at least 3 characters long.", null);
+        if (!InputValidator.isValidUsername(username)) {
+            return new RegisterResult(false, "Username must be 3-30 characters long and contain only letters, numbers, underscores, dots, or hyphens.", null);
         }
         if (dataStore.getUserRepository().existsByUsername(username.trim())) {
             return new RegisterResult(false, "Username '" + username + "' is already taken. Please choose another.", null);
         }
 
-        if (!InputValidator.isNotEmpty(password) || password.length() < 4) {
-            return new RegisterResult(false, "Password must be at least 4 characters long.", null);
+        if (!InputValidator.isValidPassword(password)) {
+            return new RegisterResult(false, "Password must be between 4 and 64 characters long and cannot consist solely of whitespace.", null);
         }
 
-        if (!InputValidator.isNotEmpty(fullName)) {
-            return new RegisterResult(false, "Full name cannot be empty.", null);
+        if (!InputValidator.isValidFullName(fullName)) {
+            return new RegisterResult(false, "Please enter a valid full name (2-50 characters, letters and spaces only).", null);
         }
 
         if (!InputValidator.isValidEmail(email)) {

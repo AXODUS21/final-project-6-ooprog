@@ -16,6 +16,7 @@ import java.util.Optional;
  * Allows managing own events, attendee check-ins, performance analytics,
  * and conflict-free scheduling.
  */
+
 public class OrganizerMenu {
     private final DataStore dataStore;
     private final AuthService authService;
@@ -82,7 +83,7 @@ public class OrganizerMenu {
 
         String venue = ConsoleIO.readNonEmptyString("Venue / Room");
         LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
-        LocalDateTime end = ConsoleIO.readDateTime("End Date & Time", false);
+        LocalDateTime end = ConsoleIO.readDateTimeAfter("End Date & Time", start);
         int capacity = ConsoleIO.readPositiveInt("Attendee Capacity Limit");
 
         EventService.EventResult res = eventService.createEvent(
@@ -117,15 +118,20 @@ public class OrganizerMenu {
 
         int ch = ConsoleIO.readInt("Select", 0, 3);
         if (ch == 1) {
-            String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to edit");
+            String eventId = ConsoleIO.readEventId("Enter Event ID to edit");
             Optional<Event> evOpt = eventService.getEventById(eventId);
             if (evOpt.isPresent() && evOpt.get().getOrganizerId().equals(user.getUserId())) {
                 Event ev = evOpt.get();
+                if (ev.isCancelled()) {
+                    ConsoleIO.printError("Cannot edit a cancelled event.");
+                    ConsoleIO.pause();
+                    return;
+                }
                 String title = ConsoleIO.readOptionalString("New Title", ev.getTitle());
                 String desc = ConsoleIO.readOptionalString("New Description", ev.getDescription());
                 String venue = ConsoleIO.readOptionalString("New Venue", ev.getVenue());
-                LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", ev.getStartDateTime());
-                LocalDateTime end = ConsoleIO.readOptionalDateTime("New End Time", ev.getEndDateTime());
+                LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", ev.getStartDateTime(), ev.isUpcoming());
+                LocalDateTime end = ConsoleIO.readOptionalDateTimeAfter("New End Time", ev.getEndDateTime(), start);
                 int cap = ConsoleIO.readOptionalPositiveInt("New Capacity", ev.getCapacity());
 
                 EventService.EventResult res = eventService.updateEvent(user, eventId, title, desc, ev.getCategory(),
@@ -136,7 +142,7 @@ public class OrganizerMenu {
                 ConsoleIO.printError("Event not found or you are not the organizer.");
             }
         } else if (ch == 2) {
-            String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to change status");
+            String eventId = ConsoleIO.readEventId("Enter Event ID to change status");
             System.out.println("1. UPCOMING | 2. ONGOING | 3. COMPLETED");
             int statOpt = ConsoleIO.readInt("Select Status", 1, 3);
             EventStatus st = statOpt == 1 ? EventStatus.UPCOMING : (statOpt == 2 ? EventStatus.ONGOING : EventStatus.COMPLETED);
@@ -144,7 +150,7 @@ public class OrganizerMenu {
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
         } else if (ch == 3) {
-            String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to cancel");
+            String eventId = ConsoleIO.readEventId("Enter Event ID to cancel");
             if (ConsoleIO.readConfirmation("Are you sure you want to cancel this event?")) {
                 EventService.EventResult res = eventService.cancelEvent(user, eventId);
                 if (res.success) ConsoleIO.printSuccess(res.message);
@@ -166,7 +172,7 @@ public class OrganizerMenu {
         }
 
         renderEventsTable(myEvents);
-        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to view attendees & check in");
+        String eventId = ConsoleIO.readEventId("Enter Event ID to view attendees & check in");
         Optional<Event> evOpt = eventService.getEventById(eventId);
         if (evOpt.isEmpty() || !evOpt.get().getOrganizerId().equals(user.getUserId())) {
             ConsoleIO.printError("Event not found or unauthorized.");
@@ -185,11 +191,17 @@ public class OrganizerMenu {
         }
         table.render();
 
+        if (regs.isEmpty()) {
+            System.out.println(ConsoleIO.YELLOW + "No attendees have registered for this event yet. Check-in is not available." + ConsoleIO.RESET);
+            ConsoleIO.pause();
+            return;
+        }
+
         System.out.println("1. Check In an Attendee");
         System.out.println("0. Return");
         int ch = ConsoleIO.readInt("Select", 0, 1);
         if (ch == 1) {
-            String attendeeUserId = ConsoleIO.readNonEmptyString("Enter Attendee User ID (e.g. USR-1004)");
+            String attendeeUserId = ConsoleIO.readUserId("Enter Attendee User ID (e.g. USR-1004)");
             RegistrationService.CheckInResult res = registrationService.checkInAttendee(user, eventId, attendeeUserId);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);

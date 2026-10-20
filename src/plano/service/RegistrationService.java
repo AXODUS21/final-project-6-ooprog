@@ -3,6 +3,7 @@ package plano.service;
 import plano.model.*;
 import plano.repository.DataStore;
 import plano.util.ConsoleIO;
+import plano.util.InputValidator;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -70,6 +71,32 @@ public class RegistrationService {
 
         if (event.isCompleted()) {
             return new RegistrationResult(false, "Cannot register: This event has already concluded.", null, null);
+        }
+
+        if (event.getEndDateTime() != null && event.getEndDateTime().isBefore(LocalDateTime.now())) {
+            return new RegistrationResult(false, "Cannot register: This event has already concluded.", null, null);
+        }
+
+        if (event.getOrganizerId().equals(user.getUserId())) {
+            return new RegistrationResult(false, "Organizers cannot register as attendees for their own events.", null, null);
+        }
+
+        // Check for Attendee Schedule Conflict with other confirmed registrations
+        List<Registration> userRegs = dataStore.getRegistrationRepository().findByUser(user.getUserId());
+        for (Registration ur : userRegs) {
+            if (ur.isConfirmed() || ur.isCheckedIn()) {
+                Optional<Event> otherEventOpt = dataStore.getEventRepository().findById(ur.getEventId());
+                if (otherEventOpt.isPresent()) {
+                    Event other = otherEventOpt.get();
+                    if (!other.isCancelled() && !other.getEventId().equals(eventId) &&
+                            InputValidator.doIntervalsOverlap(event.getStartDateTime(), event.getEndDateTime(),
+                                    other.getStartDateTime(), other.getEndDateTime())) {
+                        return new RegistrationResult(false,
+                                "Schedule Conflict: You are already confirmed for '" + other.getTitle() +
+                                "' during an overlapping time window.", null, null);
+                    }
+                }
+            }
         }
 
         // Check duplicate registration

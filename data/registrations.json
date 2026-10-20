@@ -1,0 +1,82 @@
+[
+  {
+    "registrationId": "REG-1001",
+    "eventId": "EVT-1001",
+    "userId": "USR-1004",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170791",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1002",
+    "eventId": "EVT-1001",
+    "userId": "USR-1005",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170804",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1003",
+    "eventId": "EVT-1001",
+    "userId": "USR-1006",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170809",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1004",
+    "eventId": "EVT-1002",
+    "userId": "USR-1004",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170813",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1005",
+    "eventId": "EVT-1002",
+    "userId": "USR-1005",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170816",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1006",
+    "eventId": "EVT-1002",
+    "userId": "USR-1006",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170819",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1007",
+    "eventId": "EVT-1002",
+    "userId": "USR-1007",
+    "status": "WAITLISTED",
+    "registeredAt": "2026-10-20T10:43:13.170822",
+    "checkedInAt": ""
+  },
+  {
+    "registrationId": "REG-1008",
+    "eventId": "EVT-1006",
+    "userId": "USR-1004",
+    "status": "CHECKED_IN",
+    "registeredAt": "2026-10-20T10:43:13.170826",
+    "checkedInAt": "2026-10-15T14:05:13.170016"
+  },
+  {
+    "registrationId": "REG-1009",
+    "eventId": "EVT-1006",
+    "userId": "USR-1005",
+    "status": "CHECKED_IN",
+    "registeredAt": "2026-10-20T10:43:13.170831",
+    "checkedInAt": "2026-10-15T14:10:13.170016"
+  },
+  {
+    "registrationId": "REG-1010",
+    "eventId": "EVT-1006",
+    "userId": "USR-1006",
+    "status": "CONFIRMED",
+    "registeredAt": "2026-10-20T10:43:13.170835",
+    "checkedInAt": ""
+  }
+]

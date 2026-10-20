@@ -4,6 +4,7 @@ import plano.model.*;
 import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.*;
+import plano.util.InputValidator;
 
 import java.io.File;
 import java.time.LocalDateTime;
@@ -45,6 +46,8 @@ public class PlanOTest {
         testFeedbackAndRatings(feedbackService, dataStore);
         testReportingAndDashboards(reportService);
         testDataPersistenceReload(testDataDir);
+        testEnhancedInputValidation(authService, eventService, registrationService, feedbackService, dataStore);
+        testEmptyDatabaseAndNumericFormatting();
 
         // Cleanup
         cleanDirectory(new File(testDataDir));
@@ -322,6 +325,128 @@ public class PlanOTest {
         assertTrue("Reloaded DataStore preserves user records", userCount > 0);
         assertTrue("Reloaded DataStore preserves event records", eventCount > 0);
         assertTrue("Reloaded DataStore preserves registration records", regCount > 0);
+    }
+
+    private static void testEnhancedInputValidation(AuthService authService, EventService eventService,
+                                                    RegistrationService registrationService, FeedbackService feedbackService,
+                                                    DataStore dataStore) {
+        System.out.println("\n--- Testing Enhanced Input Validation & Business Invariants ---");
+
+        // 1. Username pattern validation
+        AuthService.RegisterResult shortUser = authService.register("ab", "pass123", "Short User", "short@test.com", Role.ATTENDEE);
+        assertTrue("Username under 3 chars is rejected", !shortUser.success);
+
+        AuthService.RegisterResult spaceUser = authService.register("bad user", "pass123", "Space User", "space@test.com", Role.ATTENDEE);
+        assertTrue("Username with spaces is rejected", !spaceUser.success);
+
+        // 2. Password validation
+        AuthService.RegisterResult blankPass = authService.register("validuser1", "    ", "Blank Pass User", "blank@test.com", Role.ATTENDEE);
+        assertTrue("Password with whitespace only is rejected", !blankPass.success);
+
+        // 3. Full name validation
+        AuthService.RegisterResult numName = authService.register("validuser2", "pass123", "John123", "num@test.com", Role.ATTENDEE);
+        assertTrue("Full name containing numbers is rejected", !numName.success);
+
+        // 4. Non-existent category rejection
+        User organizer = dataStore.getUserRepository().findByUsername("courtney_org").get();
+        LocalDateTime futureStart = LocalDateTime.now().plusDays(60).withHour(10).withMinute(0);
+        LocalDateTime futureEnd = LocalDateTime.now().plusDays(60).withHour(12).withMinute(0);
+        EventService.EventResult badCatEvent = eventService.createEvent(
+                organizer, "Invalid Category Event", "Desc", "NonExistentCategory",
+                "Room A", futureStart, futureEnd, 20
+        );
+        assertTrue("Creating an event with non-existent category is rejected", !badCatEvent.success);
+
+        // 5. Short event title rejection
+        EventService.EventResult shortTitle = eventService.createEvent(
+                organizer, "Hi", "Desc", "Conference",
+                "Room A", futureStart, futureEnd, 20
+        );
+        assertTrue("Creating an event with title shorter than 3 chars is rejected", !shortTitle.success);
+
+        // 6. Capacity bounds
+        EventService.EventResult zeroCap = eventService.createEvent(
+                organizer, "Zero Cap Event", "Desc", "Conference",
+                "Room A", futureStart, futureEnd, 0
+        );
+        assertTrue("Creating an event with capacity <= 0 is rejected", !zeroCap.success);
+
+        // 7. Rescheduling an upcoming event into the past is rejected
+        Event evt1 = dataStore.getEventRepository().findById("EVT-1001").get();
+        EventService.EventResult pastResched = eventService.updateEvent(
+                organizer, evt1.getEventId(), null, null, null, null,
+                LocalDateTime.now().minusDays(2), LocalDateTime.now().minusDays(1), -1, null
+        );
+        assertTrue("Rescheduling an upcoming event into the past is rejected", !pastResched.success);
+
+        // 8. Capacity reduction below confirmed attendees is rejected
+        // EVT-1001 has 3 confirmed attendees in default data
+        EventService.EventResult badCapReduce = eventService.updateEvent(
+                organizer, "EVT-1001", null, null, null, null, null, null, 1, null
+        );
+        assertTrue("Reducing capacity below current confirmed attendee count is rejected", !badCapReduce.success);
+
+        // 9. Organizer self-registration is rejected
+        RegistrationService.RegistrationResult selfReg = registrationService.register(organizer, "EVT-1001");
+        assertTrue("Organizer cannot register as an attendee for their own event", !selfReg.success);
+
+        // 10. Organizer reviewing own event is rejected
+        FeedbackService.FeedbackResult selfReview = feedbackService.submitFeedback(organizer, "EVT-1006", 5, "I was great!");
+        assertTrue("Organizer cannot submit feedback for their own event", !selfReview.success);
+
+        // 11. Attendee schedule conflict detection
+        User attendee = dataStore.getUserRepository().findByUsername("axellerosh").get();
+        // axellerosh is confirmed for EVT-1001
+        Event evt1Ref = dataStore.getEventRepository().findById("EVT-1001").get();
+        // Create an overlapping event at a different venue
+        EventService.EventResult overlapEvt = eventService.createEvent(
+                organizer, "Overlapping Parallel Event", "Parallel", "Seminar",
+                "Hall Z", evt1Ref.getStartDateTime(), evt1Ref.getEndDateTime(), 50
+        );
+        assertTrue("Parallel event creation succeeded", overlapEvt.success);
+        RegistrationService.RegistrationResult conflictReg = registrationService.register(attendee, overlapEvt.event.getEventId());
+        assertTrue("Attendee registering for overlapping event is flagged with Schedule Conflict",
+                !conflictReg.success && conflictReg.message.contains("Schedule Conflict"));
+    }
+
+    private static void testEmptyDatabaseAndNumericFormatting() {
+        System.out.println("\n--- Testing Empty Database & Numeric/ID Format Validations ---");
+
+        // 1. Empty database login rejection
+        String emptyDir = "empty_test_data";
+        cleanDirectory(new File(emptyDir));
+        DataStore emptyStore = new DataStore(emptyDir);
+        // Clear all users to simulate empty user database
+        emptyStore.getUserRepository().clear();
+        AuthService emptyAuth = new AuthService(emptyStore);
+
+        AuthService.LoginResult loginOnEmpty = emptyAuth.login("admin", "admin123");
+        assertTrue("Login is prevented when no registered accounts exist in the database",
+                !loginOnEmpty.success && loginOnEmpty.message.contains("No registered accounts exist"));
+        cleanDirectory(new File(emptyDir));
+
+        // 2. Leading zero validation
+        assertTrue("Number with leading zero '01' is detected", InputValidator.hasLeadingZeroes("01"));
+        assertTrue("Number with leading zero '007' is detected", InputValidator.hasLeadingZeroes("007"));
+        assertTrue("Single '0' is not considered leading zeroes", !InputValidator.hasLeadingZeroes("0"));
+        assertTrue("Normal positive number '10' has no leading zeroes", !InputValidator.hasLeadingZeroes("10"));
+
+        // 3. Decimal and trailing zero validation for integer inputs
+        assertTrue("Number with decimal/trailing zero '1.0' is detected", InputValidator.hasDecimalOrTrailingZeroes("1.0"));
+        assertTrue("Number with trailing zeroes '10.00' is detected", InputValidator.hasDecimalOrTrailingZeroes("10.00"));
+        assertTrue("Standard integer '50' does not have decimal/trailing zeroes", !InputValidator.hasDecimalOrTrailingZeroes("50"));
+
+        // 4. Integer format checkers
+        assertTrue("'500' matches integer format", InputValidator.isValidIntegerFormat("500"));
+        assertTrue("'0' matches integer format", InputValidator.isValidIntegerFormat("0"));
+        assertTrue("'-5' does not match positive integer format", !InputValidator.isValidPositiveIntegerFormat("-5"));
+
+        // 5. ID format validators
+        assertTrue("'EVT-1001' is valid Event ID format", InputValidator.isValidEventId("EVT-1001"));
+        assertTrue("'invalid-evt' is rejected as Event ID", !InputValidator.isValidEventId("invalid-evt"));
+        assertTrue("'USR-1004' is valid User ID format", InputValidator.isValidUserId("USR-1004"));
+        assertTrue("'REG-1001' is valid Registration ID format", InputValidator.isValidRegistrationId("REG-1001"));
+        assertTrue("'CAT-101' is valid Category ID format", InputValidator.isValidCategoryId("CAT-101"));
     }
 
     private static void cleanDirectory(File dir) {

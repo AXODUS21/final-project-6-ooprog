@@ -48,6 +48,11 @@ public class FeedbackService {
             return new FeedbackResult(false, "Feedback can only be submitted after the event has been marked as COMPLETED.", null);
         }
 
+        // Validate user was not the organizer of this event
+        if (event.getOrganizerId().equals(attendee.getUserId())) {
+            return new FeedbackResult(false, "Organizers cannot submit reviews for their own events.", null);
+        }
+
         // Validate user was registered or attended
         Optional<Registration> regOpt = dataStore.getRegistrationRepository().findByEventAndUser(eventId, attendee.getUserId());
         if (regOpt.isEmpty() || regOpt.get().isWaitlisted() || regOpt.get().isCancelled()) {
@@ -58,8 +63,8 @@ public class FeedbackService {
             return new FeedbackResult(false, "Rating must be between 1 and 5 stars.", null);
         }
 
-        if (!InputValidator.isNotEmpty(comment)) {
-            return new FeedbackResult(false, "Please provide a review comment.", null);
+        if (!InputValidator.isValidComment(comment)) {
+            return new FeedbackResult(false, "Please provide a valid review comment (3 - 1,000 characters).", null);
         }
 
         // Check if updating existing feedback

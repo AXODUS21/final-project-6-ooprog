@@ -103,6 +103,18 @@ public class ConsoleIO {
     public static int readInt(String prompt, int min, int max) {
         while (true) {
             String input = readString(prompt + " (" + min + " - " + max + ")");
+            if (input.isBlank()) {
+                printError("This field cannot be empty. Please enter a number.");
+                continue;
+            }
+            if (InputValidator.hasDecimalOrTrailingZeroes(input)) {
+                printError("Invalid format: Decimals or trailing zeroes (e.g. '1.0' or '5.00') are not permitted. Please enter a whole integer.");
+                continue;
+            }
+            if (InputValidator.hasLeadingZeroes(input)) {
+                printError("Invalid format: Leading zeroes (e.g. '01') are not permitted. Please enter standard digits.");
+                continue;
+            }
             try {
                 int val = Integer.parseInt(input);
                 if (val >= min && val <= max) {
@@ -116,14 +128,35 @@ public class ConsoleIO {
     }
 
     public static int readPositiveInt(String prompt) {
+        return readPositiveInt(prompt, 50000);
+    }
+
+    public static int readPositiveInt(String prompt, int maxLimit) {
         while (true) {
             String input = readString(prompt);
+            if (input.isBlank()) {
+                printError("This field cannot be empty. Please enter a positive integer.");
+                continue;
+            }
+            if (InputValidator.hasDecimalOrTrailingZeroes(input)) {
+                printError("Invalid format: Decimals or trailing zeroes (e.g. '10.0') are not permitted. Please enter a whole integer.");
+                continue;
+            }
+            if (InputValidator.hasLeadingZeroes(input)) {
+                printError("Invalid format: Leading zeroes (e.g. '05') are not permitted.");
+                continue;
+            }
             try {
                 int val = Integer.parseInt(input);
-                if (val > 0) {
-                    return val;
+                if (val <= 0) {
+                    printError("Value must be a positive number greater than 0.");
+                    continue;
                 }
-                printError("Value must be a positive number greater than 0.");
+                if (val > maxLimit) {
+                    printError("Value exceeds maximum allowable limit (" + maxLimit + ").");
+                    continue;
+                }
+                return val;
             } catch (NumberFormatException e) {
                 printError("Invalid number format. Please enter an integer.");
             }
@@ -136,12 +169,25 @@ public class ConsoleIO {
             if (input.isBlank()) {
                 return defaultValue;
             }
+            if (InputValidator.hasDecimalOrTrailingZeroes(input)) {
+                printError("Invalid format: Decimals or trailing zeroes (e.g. '10.0') are not permitted.");
+                continue;
+            }
+            if (InputValidator.hasLeadingZeroes(input)) {
+                printError("Invalid format: Leading zeroes (e.g. '05') are not permitted.");
+                continue;
+            }
             try {
                 int val = Integer.parseInt(input);
-                if (val > 0) {
-                    return val;
+                if (val <= 0) {
+                    printError("Value must be greater than 0.");
+                    continue;
                 }
-                printError("Value must be greater than 0.");
+                if (val > 50000) {
+                    printError("Value exceeds maximum allowable limit (50,000).");
+                    continue;
+                }
+                return val;
             } catch (NumberFormatException e) {
                 printError("Invalid number format.");
             }
@@ -175,7 +221,30 @@ public class ConsoleIO {
         }
     }
 
+    public static LocalDateTime readDateTimeAfter(String prompt, LocalDateTime afterDateTime) {
+        while (true) {
+            System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (must be after " +
+                    afterDateTime.format(DATE_TIME_FORMATTER) + ")" + RESET);
+            String input = readNonEmptyString(prompt);
+            try {
+                LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
+                if (!dt.isAfter(afterDateTime)) {
+                    printError("End date/time must be strictly after the start date/time (" +
+                            afterDateTime.format(DATE_TIME_FORMATTER) + ").");
+                    continue;
+                }
+                return dt;
+            } catch (DateTimeParseException e) {
+                printError("Invalid date/time format. Please use format: yyyy-MM-dd HH:mm");
+            }
+        }
+    }
+
     public static LocalDateTime readOptionalDateTime(String prompt, LocalDateTime defaultValue) {
+        return readOptionalDateTime(prompt, defaultValue, false);
+    }
+
+    public static LocalDateTime readOptionalDateTime(String prompt, LocalDateTime defaultValue, boolean mustBeFuture) {
         String defaultStr = defaultValue != null ? defaultValue.format(DATE_TIME_FORMATTER) : "none";
         while (true) {
             System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (leave empty to keep [" + defaultStr + "])" + RESET);
@@ -184,7 +253,35 @@ public class ConsoleIO {
                 return defaultValue;
             }
             try {
-                return LocalDateTime.parse(input, DATE_TIME_FORMATTER);
+                LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
+                if (mustBeFuture && dt.isBefore(LocalDateTime.now())) {
+                    printError("Date/time must be in the future (current time is " +
+                            LocalDateTime.now().format(DATE_TIME_FORMATTER) + ").");
+                    continue;
+                }
+                return dt;
+            } catch (DateTimeParseException e) {
+                printError("Invalid date/time format. Please use format: yyyy-MM-dd HH:mm");
+            }
+        }
+    }
+
+    public static LocalDateTime readOptionalDateTimeAfter(String prompt, LocalDateTime defaultValue, LocalDateTime minDateTime) {
+        String defaultStr = defaultValue != null ? defaultValue.format(DATE_TIME_FORMATTER) : "none";
+        while (true) {
+            System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (leave empty to keep [" + defaultStr + "])" + RESET);
+            String input = readString(prompt);
+            if (input.isBlank()) {
+                return defaultValue;
+            }
+            try {
+                LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
+                if (minDateTime != null && !dt.isAfter(minDateTime)) {
+                    printError("End date/time must be strictly after the start date/time (" +
+                            minDateTime.format(DATE_TIME_FORMATTER) + ").");
+                    continue;
+                }
+                return dt;
             } catch (DateTimeParseException e) {
                 printError("Invalid date/time format. Please use format: yyyy-MM-dd HH:mm");
             }
@@ -198,6 +295,92 @@ public class ConsoleIO {
                 return email;
             }
             printError("Invalid email format (example: name@domain.com). Please try again.");
+        }
+    }
+
+    public static String readOptionalEmail(String prompt, String defaultValue) {
+        String promptWithDefault = defaultValue == null || defaultValue.isBlank()
+                ? prompt
+                : prompt + " [" + defaultValue + "]";
+        while (true) {
+            String val = readString(promptWithDefault);
+            if (val.isBlank() && defaultValue != null) {
+                return defaultValue;
+            }
+            if (InputValidator.isValidEmail(val)) {
+                return val.trim();
+            }
+            printError("Invalid email format (example: name@domain.com). Please try again.");
+        }
+    }
+
+    public static String readUsername(String prompt) {
+        while (true) {
+            String user = readNonEmptyString(prompt);
+            if (InputValidator.isValidUsername(user)) {
+                return user.trim();
+            }
+            printError("Username must be 3-30 characters long and contain only letters, numbers, underscores, dots, or hyphens.");
+        }
+    }
+
+    public static String readPassword(String prompt) {
+        while (true) {
+            String pass = readNonEmptyString(prompt);
+            if (InputValidator.isValidPassword(pass)) {
+                return pass;
+            }
+            printError("Password must be between 4 and 64 characters long and cannot consist solely of whitespace.");
+        }
+    }
+
+    public static String readFullName(String prompt) {
+        while (true) {
+            String name = readNonEmptyString(prompt);
+            if (InputValidator.isValidFullName(name)) {
+                return name.trim();
+            }
+            printError("Please enter a valid full name (2-50 characters, letters and spaces only).");
+        }
+    }
+
+    public static String readEventId(String prompt) {
+        while (true) {
+            String id = readNonEmptyString(prompt);
+            if (InputValidator.isValidEventId(id)) {
+                return id.trim();
+            }
+            printError("Invalid Event ID format (must match 'EVT-XXXX', e.g. EVT-1001).");
+        }
+    }
+
+    public static String readUserId(String prompt) {
+        while (true) {
+            String id = readNonEmptyString(prompt);
+            if (InputValidator.isValidUserId(id)) {
+                return id.trim();
+            }
+            printError("Invalid User ID format (must match 'USR-XXXX', e.g. USR-1004).");
+        }
+    }
+
+    public static String readRegistrationId(String prompt) {
+        while (true) {
+            String id = readNonEmptyString(prompt);
+            if (InputValidator.isValidRegistrationId(id)) {
+                return id.trim();
+            }
+            printError("Invalid Registration ID format (must match 'REG-XXXX', e.g. REG-1004).");
+        }
+    }
+
+    public static String readCategoryId(String prompt) {
+        while (true) {
+            String id = readNonEmptyString(prompt);
+            if (InputValidator.isValidCategoryId(id)) {
+                return id.trim();
+            }
+            printError("Invalid Category ID format (must match 'CAT-XXX', e.g. CAT-101).");
         }
     }
 

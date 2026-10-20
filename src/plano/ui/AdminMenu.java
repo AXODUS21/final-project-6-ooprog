@@ -5,6 +5,7 @@ import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.*;
 import plano.util.ConsoleIO;
+import plano.util.InputValidator;
 import plano.util.TableRenderer;
 
 import java.time.LocalDateTime;
@@ -127,7 +128,7 @@ public class AdminMenu {
 
         String venue = ConsoleIO.readNonEmptyString("Venue / Room");
         LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
-        LocalDateTime end = ConsoleIO.readDateTime("End Date & Time", false);
+        LocalDateTime end = ConsoleIO.readDateTimeAfter("End Date & Time", start);
         int capacity = ConsoleIO.readPositiveInt("Attendee Capacity Limit");
 
         EventService.EventResult res = eventService.createEvent(
@@ -144,10 +145,16 @@ public class AdminMenu {
 
     private void manageEvent() {
         ConsoleIO.printSection("Manage Event (Admin Oversight)");
-        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID to manage (e.g. EVT-1001)");
+        if (eventService.getAllEvents().isEmpty()) {
+            System.out.println("No events found in the system to manage.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        String eventId = ConsoleIO.readEventId("Enter Event ID to manage (e.g. EVT-1001)");
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
-            ConsoleIO.printError("Event not found.");
+            ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
         }
@@ -177,11 +184,16 @@ public class AdminMenu {
 
     private void editEventDetails(Event event) {
         ConsoleIO.printSection("Edit Event: " + event.getTitle());
+        if (event.isCancelled()) {
+            ConsoleIO.printError("Cannot edit a cancelled event.");
+            return;
+        }
+
         String title = ConsoleIO.readOptionalString("New Title", event.getTitle());
         String desc = ConsoleIO.readOptionalString("New Description", event.getDescription());
         String venue = ConsoleIO.readOptionalString("New Venue", event.getVenue());
-        LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", event.getStartDateTime());
-        LocalDateTime end = ConsoleIO.readOptionalDateTime("New End Time", event.getEndDateTime());
+        LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", event.getStartDateTime(), event.isUpcoming());
+        LocalDateTime end = ConsoleIO.readOptionalDateTimeAfter("New End Time", event.getEndDateTime(), start);
         int cap = ConsoleIO.readOptionalPositiveInt("New Capacity Limit", event.getCapacity());
 
         EventService.EventResult res = eventService.updateEvent(
@@ -213,10 +225,16 @@ public class AdminMenu {
 
     private void manageCheckIns() {
         ConsoleIO.printSection("Event Attendance & Check-In");
-        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID");
+        if (eventService.getAllEvents().isEmpty()) {
+            System.out.println("No events found in the system.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1001)");
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
-            ConsoleIO.printError("Event not found.");
+            ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
         }
@@ -234,11 +252,17 @@ public class AdminMenu {
         }
         table.render();
 
+        if (regs.isEmpty()) {
+            System.out.println(ConsoleIO.YELLOW + "No attendees have registered for this event yet. Check-in is not available." + ConsoleIO.RESET);
+            ConsoleIO.pause();
+            return;
+        }
+
         System.out.println("1. Check In an Attendee");
         System.out.println("0. Return");
         int ch = ConsoleIO.readInt("Select", 0, 1);
         if (ch == 1) {
-            String attendeeUserId = ConsoleIO.readNonEmptyString("Enter Attendee User ID (e.g. USR-1004)");
+            String attendeeUserId = ConsoleIO.readUserId("Enter Attendee User ID (e.g. USR-1004)");
             RegistrationService.CheckInResult res = registrationService.checkInAttendee(authService.getCurrentUser(), eventId, attendeeUserId);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
@@ -248,10 +272,16 @@ public class AdminMenu {
 
     private void viewEventFeedback() {
         ConsoleIO.printSection("Event Reviews & Post-Event Feedback");
-        String eventId = ConsoleIO.readNonEmptyString("Enter Event ID");
+        if (eventService.getAllEvents().isEmpty()) {
+            System.out.println("No events found in the system.");
+            ConsoleIO.pause();
+            return;
+        }
+
+        String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1001)");
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (eventOpt.isEmpty()) {
-            ConsoleIO.printError("Event not found.");
+            ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
         }
@@ -276,6 +306,11 @@ public class AdminMenu {
     private void manageUsers() {
         ConsoleIO.printSection("User Accounts Management");
         List<User> users = userService.getAllUsers();
+        if (users.isEmpty()) {
+            System.out.println("No user accounts found in the system.");
+            ConsoleIO.pause();
+            return;
+        }
 
         TableRenderer table = new TableRenderer("User ID", "Username", "Full Name", "Email", "Role", "Active?");
         for (User u : users) {
@@ -291,17 +326,17 @@ public class AdminMenu {
 
         int ch = ConsoleIO.readInt("Option", 0, 3);
         if (ch == 1) {
-            String uid = ConsoleIO.readNonEmptyString("Enter User ID to deactivate");
+            String uid = ConsoleIO.readUserId("Enter User ID to deactivate (e.g. USR-1004)");
             UserService.OperationResult res = userService.deactivateUser(authService.getCurrentUser(), uid);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
         } else if (ch == 2) {
-            String uid = ConsoleIO.readNonEmptyString("Enter User ID to reactivate");
+            String uid = ConsoleIO.readUserId("Enter User ID to reactivate (e.g. USR-1004)");
             UserService.OperationResult res = userService.reactivateUser(authService.getCurrentUser(), uid);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
         } else if (ch == 3) {
-            String uid = ConsoleIO.readNonEmptyString("Enter User ID to promote to Organizer");
+            String uid = ConsoleIO.readUserId("Enter User ID to promote to Organizer (e.g. USR-1004)");
             UserService.OperationResult res = userService.promoteToOrganizer(authService.getCurrentUser(), uid);
             if (res.success) ConsoleIO.printSuccess(res.message);
             else ConsoleIO.printError(res.message);
@@ -326,22 +361,40 @@ public class AdminMenu {
         int ch = ConsoleIO.readInt("Option", 0, 2);
         if (ch == 1) {
             String name = ConsoleIO.readNonEmptyString("Category Name");
-            if (dataStore.getCategoryRepository().existsByName(name)) {
-                ConsoleIO.printError("Category '" + name + "' already exists.");
+            if (!InputValidator.isValidCategoryName(name)) {
+                ConsoleIO.printError("Category name must be between 2 and 50 characters long.");
+            } else if (dataStore.getCategoryRepository().existsByName(name.trim())) {
+                ConsoleIO.printError("Category '" + name.trim() + "' already exists.");
             } else {
                 String desc = ConsoleIO.readString("Category Description");
                 String id = dataStore.nextCategoryId();
-                dataStore.getCategoryRepository().add(new Category(id, name, desc));
+                dataStore.getCategoryRepository().add(new Category(id, name.trim(), desc));
                 dataStore.saveCategories();
-                ConsoleIO.printSuccess("Category '" + name + "' added successfully.");
+                ConsoleIO.printSuccess("Category '" + name.trim() + "' added successfully.");
             }
         } else if (ch == 2) {
-            String id = ConsoleIO.readNonEmptyString("Enter Category ID to remove");
-            if (dataStore.getCategoryRepository().delete(id)) {
-                dataStore.saveCategories();
-                ConsoleIO.printSuccess("Category removed.");
+            if (categories.isEmpty()) {
+                ConsoleIO.printError("No categories exist to remove.");
+                ConsoleIO.pause();
+                return;
+            }
+            String id = ConsoleIO.readCategoryId("Enter Category ID to remove (e.g. CAT-101)");
+            Optional<Category> catOpt = dataStore.getCategoryRepository().findById(id);
+            if (catOpt.isEmpty()) {
+                ConsoleIO.printError("Category not found with ID: " + id);
             } else {
-                ConsoleIO.printError("Category not found.");
+                Category cat = catOpt.get();
+                long assignedEventsCount = dataStore.getEventRepository().findAll().stream()
+                        .filter(e -> cat.getName().equalsIgnoreCase(e.getCategory()))
+                        .count();
+                if (assignedEventsCount > 0) {
+                    ConsoleIO.printError("Cannot delete category '" + cat.getName() + "': " +
+                            assignedEventsCount + " event(s) are currently assigned to it.");
+                } else {
+                    dataStore.getCategoryRepository().delete(id);
+                    dataStore.saveCategories();
+                    ConsoleIO.printSuccess("Category '" + cat.getName() + "' removed successfully.");
+                }
             }
         }
         ConsoleIO.pause();

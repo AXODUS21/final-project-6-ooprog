@@ -75,6 +75,12 @@ public class MenuController {
 
     private void handleLogin() {
         ConsoleIO.printSection("User Login");
+        if (dataStore.getUserRepository().size() == 0) {
+            ConsoleIO.printError("No accounts are registered in the database yet. Please register a new account first (Option 2).");
+            ConsoleIO.pause();
+            return;
+        }
+
         String username = ConsoleIO.readNonEmptyString("Username");
         String password = ConsoleIO.readNonEmptyString("Password");
 
@@ -101,9 +107,18 @@ public class MenuController {
 
     private void handleRegister() {
         ConsoleIO.printSection("Create New PlanO Account");
-        String username = ConsoleIO.readNonEmptyString("Choose Username");
-        String password = ConsoleIO.readNonEmptyString("Choose Password (min 4 chars)");
-        String fullName = ConsoleIO.readNonEmptyString("Your Full Name");
+        String username = ConsoleIO.readUsername("Choose Username");
+        String password = ConsoleIO.readPassword("Choose Password (4 - 64 chars)");
+
+        while (true) {
+            String confirmPassword = ConsoleIO.readNonEmptyString("Confirm Password");
+            if (password.equals(confirmPassword)) {
+                break;
+            }
+            ConsoleIO.printError("Passwords do not match. Please re-enter your confirmation password.");
+        }
+
+        String fullName = ConsoleIO.readFullName("Your Full Name");
         String email = ConsoleIO.readEmail("Your Email Address");
 
         System.out.println("Select Account Type:");

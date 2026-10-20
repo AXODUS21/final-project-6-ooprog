@@ -93,6 +93,9 @@ public class UserService {
         User user = userOpt.get();
 
         if (InputValidator.isNotEmpty(fullName)) {
+            if (!InputValidator.isValidFullName(fullName)) {
+                return new OperationResult(false, "Invalid full name format (2-50 characters, letters and spaces only).");
+            }
             user.setFullName(fullName.trim());
         }
 
@@ -108,8 +111,8 @@ public class UserService {
         }
 
         if (InputValidator.isNotEmpty(newPassword)) {
-            if (newPassword.length() < 4) {
-                return new OperationResult(false, "Password must be at least 4 characters long.");
+            if (!InputValidator.isValidPassword(newPassword)) {
+                return new OperationResult(false, "Password must be between 4 and 64 characters long and cannot consist solely of whitespace.");
             }
             user.setPassword(newPassword);
         }
