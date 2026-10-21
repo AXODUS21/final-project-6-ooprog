@@ -53,17 +53,30 @@ public class OrganizerMenu {
 
             int choice = ConsoleIO.readInt("Select an option", 0, 6);
             switch (choice) {
-                case 1 -> createEvent();
-                case 2 -> manageMyEvents();
-                case 3 -> manageCheckIns();
-                case 4 -> viewMyEventFeedback();
-                case 5 -> viewAnalytics();
-                case 6 -> browseAllEvents();
-                case 0 -> {
+                case 1:
+                    createEvent();
+                    break;
+                case 2:
+                    manageMyEvents();
+                    break;
+                case 3:
+                    manageCheckIns();
+                    break;
+                case 4:
+                    viewMyEventFeedback();
+                    break;
+                case 5:
+                    viewAnalytics();
+                    break;
+                case 6:
+                    browseAllEvents();
+                    break;
+                case 0:
                     authService.logout();
                     ConsoleIO.printSuccess("Logged out successfully.");
                     return;
-                }
+                default:
+                    break;
             }
         }
     }
@@ -167,7 +180,7 @@ public class OrganizerMenu {
                 int cap = ConsoleIO.readOptionalPositiveInt("New Capacity", ev.getCapacity());
 
                 EventService.EventResult res = eventService.updateEvent(user, eventId, title, desc, ev.getCategory(),
-                        venue, start, end, cap, ev.getStatus());
+                        venue, start, end, cap);
                 if (res.success) ConsoleIO.printSuccess(res.message);
                 else ConsoleIO.printError(res.message);
             } else {
@@ -176,12 +189,15 @@ public class OrganizerMenu {
         } else if (ch == 2) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to change status");
             if (eventId == null) return;
-            System.out.println("1. UPCOMING | 2. ONGOING | 3. COMPLETED");
-            int statOpt = ConsoleIO.readInt("Select Status", 1, 3);
-            EventStatus st = statOpt == 1 ? EventStatus.UPCOMING : (statOpt == 2 ? EventStatus.ONGOING : EventStatus.COMPLETED);
-            EventService.EventResult res = eventService.updateEventStatus(user, eventId, st);
-            if (res.success) ConsoleIO.printSuccess(res.message);
-            else ConsoleIO.printError(res.message);
+            System.out.println("Statuses only move forward: Upcoming -> Ongoing -> Completed.");
+            System.out.println("1. ONGOING | 2. COMPLETED | 0. Back");
+            int statOpt = ConsoleIO.readInt("Select Status", 0, 2);
+            if (statOpt != 0) {
+                EventStatus st = statOpt == 1 ? EventStatus.ONGOING : EventStatus.COMPLETED;
+                EventService.EventResult res = eventService.updateEventStatus(user, eventId, st);
+                if (res.success) ConsoleIO.printSuccess(res.message);
+                else ConsoleIO.printError(res.message);
+            }
         } else if (ch == 3) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to cancel");
             if (eventId == null) return;
@@ -209,7 +225,7 @@ public class OrganizerMenu {
         String eventId = ConsoleIO.readEventId("Enter Event ID to view attendees & check in");
         if (eventId == null) return;
         Optional<Event> evOpt = eventService.getEventById(eventId);
-        if (evOpt.isEmpty() || !evOpt.get().getOrganizerId().equals(user.getUserId())) {
+        if (!evOpt.isPresent() || !evOpt.get().getOrganizerId().equals(user.getUserId())) {
             ConsoleIO.printError("Event not found or unauthorized.");
             ConsoleIO.pause();
             return;
@@ -276,18 +292,24 @@ public class OrganizerMenu {
         User user = authService.getCurrentUser();
         ReportService.OrganizerDashboardData data = reportService.getOrganizerDashboard(user.getUserId());
 
-        System.out.println(ConsoleIO.BOLD + "📈 SUMMARY METRICS" + ConsoleIO.RESET);
-        System.out.printf("  Total Events Created: %d  (Upcoming: %d | Completed: %d | Cancelled: %d)\n",
-                data.totalEvents, data.upcomingEvents, data.completedEvents, data.cancelledEvents);
+        System.out.println(ConsoleIO.BOLD + "SUMMARY METRICS" + ConsoleIO.RESET);
+        System.out.printf("  Total Events Created: %d  (Upcoming: %d | Ongoing: %d | Completed: %d | Cancelled: %d | Ended, not marked completed: %d)\n",
+                data.totalEvents, data.upcomingEvents, data.ongoingEvents, data.completedEvents,
+                data.cancelledEvents, data.awaitingCompletionEvents);
         System.out.printf("  Total Confirmed Attendees: %d | Total Waitlisted: %d | Total Checked-In: %d\n\n",
                 data.totalRegistrations, data.totalWaitlisted, data.totalCheckedIn);
+        if (data.awaitingCompletionEvents > 0) {
+            ConsoleIO.printWarning(data.awaitingCompletionEvents + " of your events have ended but are not marked Completed. " +
+                    "Mark them Completed (My Events > Update Event Status) so attendees can leave reviews.");
+            System.out.println();
+        }
 
         TableRenderer table = new TableRenderer(
                 "Event ID", "Title", "Status", "Cap", "Confirmed", "Waitlist", "Checked-in", "Fill Rate", "Check-in %", "Avg Rating"
         );
 
         for (ReportService.EventPerformance p : data.eventPerformances) {
-            String avgRatingStr = p.reviewCount > 0 ? String.format("%.1f ★ (%d)", p.averageRating, p.reviewCount) : "No reviews";
+            String avgRatingStr = p.reviewCount > 0 ? String.format("%.1f/5 (%d)", p.averageRating, p.reviewCount) : "No reviews";
             table.addRow(
                     p.eventId,
                     p.title,

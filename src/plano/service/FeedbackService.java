@@ -39,7 +39,7 @@ public class FeedbackService {
         }
 
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             return new FeedbackResult(false, "Event not found.", null);
         }
 
@@ -57,10 +57,10 @@ public class FeedbackService {
             return new FeedbackResult(false, "Organizers cannot submit reviews for their own events.", null);
         }
 
-        // Validate user was registered or attended
+        // Only people who actually attended (were checked in) may review
         Optional<Registration> regOpt = dataStore.getRegistrationRepository().findByEventAndUser(eventId, attendee.getUserId());
-        if (regOpt.isEmpty() || regOpt.get().isWaitlisted() || regOpt.get().isCancelled()) {
-            return new FeedbackResult(false, "Only confirmed attendees can submit feedback for this event.", null);
+        if (!regOpt.isPresent() || !regOpt.get().isCheckedIn()) {
+            return new FeedbackResult(false, "Only attendees who were checked in at this event can review it.", null);
         }
 
         if (rating < 1 || rating > 5) {

@@ -5,15 +5,19 @@ import plano.util.SimpleJson;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
- * Manages persistent JSON storage in the 'data/' directory.
- * Automatically loads data on startup and provides auto-seeding if empty.
+ * Manages persistent JSON storage in the data directory.
+ * Loads every file on startup (all or nothing) and seeds demo data when no data exists yet.
  */
 public class DataStore {
 
@@ -28,6 +32,9 @@ public class DataStore {
         this("data");
     }
 
+    /**
+     * @throws DataLoadException if an existing data file cannot be read
+     */
     public DataStore(String dataDir) {
         this.dataDir = dataDir;
         initAndLoad();
@@ -54,25 +61,41 @@ public class DataStore {
     }
 
     // ==================== ID GENERATORS ====================
+    // Each new ID is one above the highest existing number, so an ID is never reused after a deletion.
 
     public synchronized String nextUserId() {
-        return "USR-" + (1000 + userRepository.size() + 1);
+        return nextId("USR-", 1000, userRepository.findAll().stream().map(User::getUserId).collect(Collectors.toList()));
     }
 
     public synchronized String nextCategoryId() {
-        return "CAT-" + (100 + categoryRepository.size() + 1);
+        return nextId("CAT-", 100, categoryRepository.findAll().stream().map(Category::getCategoryId).collect(Collectors.toList()));
     }
 
     public synchronized String nextEventId() {
-        return "EVT-" + (1000 + eventRepository.size() + 1);
+        return nextId("EVT-", 1000, eventRepository.findAll().stream().map(Event::getEventId).collect(Collectors.toList()));
     }
 
     public synchronized String nextRegistrationId() {
-        return "REG-" + (1000 + registrationRepository.size() + 1);
+        return nextId("REG-", 1000, registrationRepository.findAll().stream().map(Registration::getRegistrationId).collect(Collectors.toList()));
     }
 
     public synchronized String nextFeedbackId() {
-        return "FB-" + (1000 + feedbackRepository.size() + 1);
+        return nextId("FB-", 1000, feedbackRepository.findAll().stream().map(Feedback::getFeedbackId).collect(Collectors.toList()));
+    }
+
+    private static String nextId(String prefix, int base, List<String> existingIds) {
+        int highest = base;
+        for (String id : existingIds) {
+            if (id == null || !id.startsWith(prefix)) {
+                continue;
+            }
+            try {
+                highest = Math.max(highest, Integer.parseInt(id.substring(prefix.length())));
+            } catch (NumberFormatException ignored) {
+                // An ID that does not follow the PREFIX-number format does not affect numbering.
+            }
+        }
+        return prefix + (highest + 1);
     }
 
     // ==================== INITIALIZATION & PERSISTENCE ====================
@@ -140,99 +163,87 @@ public class DataStore {
         writeFile("feedbacks.json", SimpleJson.serialize(list));
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * Reads all five files before touching any repository. If any file or record cannot be read,
+     * nothing is loaded and a DataLoadException names the problem, leaving the files untouched.
+     */
     private void loadAll() {
-        try {
-            // Load Users
-            String usersJson = readFile("users.json");
-            if (usersJson != null) {
-                Object parsed = SimpleJson.parse(usersJson);
-                if (parsed instanceof List) {
-                    userRepository.clear();
-                    for (Object item : (List<?>) parsed) {
-                        if (item instanceof Map) {
-                            userRepository.add(User.fromMap((Map<String, Object>) item));
-                        }
-                    }
-                }
-            }
+        List<User> users = readRecords("users.json", User::fromMap, User::getUserId);
+        List<Category> categories = readRecords("categories.json", Category::fromMap, Category::getCategoryId);
+        List<Event> events = readRecords("events.json", Event::fromMap, Event::getEventId);
+        List<Registration> registrations = readRecords("registrations.json", Registration::fromMap, Registration::getRegistrationId);
+        List<Feedback> feedbacks = readRecords("feedbacks.json", Feedback::fromMap, Feedback::getFeedbackId);
 
-            // Load Categories
-            String catJson = readFile("categories.json");
-            if (catJson != null) {
-                Object parsed = SimpleJson.parse(catJson);
-                if (parsed instanceof List) {
-                    categoryRepository.clear();
-                    for (Object item : (List<?>) parsed) {
-                        if (item instanceof Map) {
-                            categoryRepository.add(Category.fromMap((Map<String, Object>) item));
-                        }
-                    }
-                }
-            }
+        userRepository.clear();
+        for (User u : users) userRepository.add(u);
+        categoryRepository.clear();
+        for (Category c : categories) categoryRepository.add(c);
+        eventRepository.clear();
+        for (Event e : events) eventRepository.add(e);
+        registrationRepository.clear();
+        for (Registration r : registrations) registrationRepository.add(r);
+        feedbackRepository.clear();
+        for (Feedback fb : feedbacks) feedbackRepository.add(fb);
+    }
 
-            // Load Events
-            String evtJson = readFile("events.json");
-            if (evtJson != null) {
-                Object parsed = SimpleJson.parse(evtJson);
-                if (parsed instanceof List) {
-                    eventRepository.clear();
-                    for (Object item : (List<?>) parsed) {
-                        if (item instanceof Map) {
-                            eventRepository.add(Event.fromMap((Map<String, Object>) item));
-                        }
-                    }
-                }
-            }
-
-            // Load Registrations
-            String regJson = readFile("registrations.json");
-            if (regJson != null) {
-                Object parsed = SimpleJson.parse(regJson);
-                if (parsed instanceof List) {
-                    registrationRepository.clear();
-                    for (Object item : (List<?>) parsed) {
-                        if (item instanceof Map) {
-                            registrationRepository.add(Registration.fromMap((Map<String, Object>) item));
-                        }
-                    }
-                }
-            }
-
-            // Load Feedbacks
-            String fbJson = readFile("feedbacks.json");
-            if (fbJson != null) {
-                Object parsed = SimpleJson.parse(fbJson);
-                if (parsed instanceof List) {
-                    feedbackRepository.clear();
-                    for (Object item : (List<?>) parsed) {
-                        if (item instanceof Map) {
-                            feedbackRepository.add(Feedback.fromMap((Map<String, Object>) item));
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("Warning: Error loading persistence files: " + e.getMessage());
+    @SuppressWarnings("unchecked")
+    private <T> List<T> readRecords(String filename, Function<Map<String, Object>, T> mapper, Function<T, String> idOf) {
+        List<T> records = new ArrayList<>();
+        String json = readFile(filename);
+        if (json == null) {
+            return records; // A missing file just means there are no records of that kind yet.
         }
+
+        String where = Paths.get(dataDir, filename).toString();
+        Object parsed;
+        try {
+            parsed = SimpleJson.parse(json);
+        } catch (RuntimeException e) {
+            throw new DataLoadException(where, "the file is not valid JSON (" + e.getMessage() + ")");
+        }
+        if (!(parsed instanceof List)) {
+            throw new DataLoadException(where, "expected a JSON array of records");
+        }
+
+        int index = 0;
+        for (Object item : (List<Object>) parsed) {
+            index++;
+            if (!(item instanceof Map)) {
+                throw new DataLoadException(where, "record #" + index + " is not a JSON object");
+            }
+            T record;
+            try {
+                record = mapper.apply((Map<String, Object>) item);
+            } catch (RuntimeException e) {
+                throw new DataLoadException(where, "record #" + index + " could not be read (" + e.getMessage() + ")");
+            }
+            String id = idOf.apply(record);
+            if (id == null || id.trim().isEmpty()) {
+                throw new DataLoadException(where, "record #" + index + " has no ID");
+            }
+            records.add(record);
+        }
+        return records;
     }
 
     private void writeFile(String filename, String content) {
         try {
             Path path = Paths.get(dataDir, filename);
-            Files.writeString(path, content);
+            Files.write(path, content.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             System.err.println("Failed to write to file " + filename + ": " + e.getMessage());
         }
     }
 
     private String readFile(String filename) {
-        try {
-            Path path = Paths.get(dataDir, filename);
-            if (!Files.exists(path)) return null;
-            return Files.readString(path);
-        } catch (IOException e) {
+        Path path = Paths.get(dataDir, filename);
+        if (!Files.exists(path)) {
             return null;
+        }
+        try {
+            return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new DataLoadException(path.toString(), "the file could not be read (" + e.getMessage() + ")");
         }
     }
 
@@ -273,55 +284,55 @@ public class DataStore {
         categoryRepository.add(catComm);
         categoryRepository.add(catHack);
 
-        // 3. Events
-        LocalDateTime now = LocalDateTime.now();
+        // 3. Events (dates are relative to the first run, so the demo events are always upcoming)
+        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
 
         // EVT-1001: AI Summit (Upcoming Conference)
         Event e1 = new Event("EVT-1001", "AI & Modern Java Summit 2026",
                 "Deep dive into modern Java 25 features, agentic workflows, and cloud architecture.",
                 "USR-1002", "Conference", "Grand Auditorium A",
-                now.plusDays(7).withHour(9).withMinute(0).withSecond(0),
-                now.plusDays(7).withHour(17).withMinute(0).withSecond(0),
+                now.plusDays(7).withHour(9).withMinute(0),
+                now.plusDays(7).withHour(17).withMinute(0),
                 30);
 
-        // EVT-1002: Microservices Workshop (Capacity 3 -> Will demonstrate Waitlist!)
+        // EVT-1002: Microservices Workshop (Capacity 3 -> demonstrates the waitlist)
         Event e2 = new Event("EVT-1002", "Hands-on Microservices Lab",
                 "Step-by-step building of resilient distributed systems with practical exercises.",
                 "USR-1002", "Workshop", "Computer Lab 304",
-                now.plusDays(10).withHour(13).withMinute(30).withSecond(0),
-                now.plusDays(10).withHour(16).withMinute(30).withSecond(0),
+                now.plusDays(10).withHour(13).withMinute(30),
+                now.plusDays(10).withHour(16).withMinute(30),
                 3);
 
         // EVT-1003: UI/UX Seminar
         Event e3 = new Event("EVT-1003", "Design Systems & User Experience",
                 "Creating scalable design tokens and accessible web interfaces.",
                 "USR-1003", "Seminar", "Audio-Visual Room 2",
-                now.plusDays(14).withHour(10).withMinute(0).withSecond(0),
-                now.plusDays(14).withHour(12).withMinute(0).withSecond(0),
+                now.plusDays(14).withHour(10).withMinute(0),
+                now.plusDays(14).withHour(12).withMinute(0),
                 25);
 
         // EVT-1004: Open Source Meetup
         Event e4 = new Event("EVT-1004", "Open Source Contributors Meetup",
                 "Networking session for students and professionals contributing to open source.",
                 "USR-1003", "Meetup", "Student Center Lounge",
-                now.plusDays(20).withHour(15).withMinute(0).withSecond(0),
-                now.plusDays(20).withHour(18).withMinute(0).withSecond(0),
+                now.plusDays(20).withHour(15).withMinute(0),
+                now.plusDays(20).withHour(18).withMinute(0),
                 15);
 
         // EVT-1005: Community Clean Drive
         Event e5 = new Event("EVT-1005", "Campus Green Community Drive",
                 "Tree planting and recycling awareness campaign across campus.",
                 "USR-1002", "Community Gathering", "University Quadrangle",
-                now.plusDays(25).withHour(8).withMinute(0).withSecond(0),
-                now.plusDays(25).withHour(11).withMinute(30).withSecond(0),
+                now.plusDays(25).withHour(8).withMinute(0),
+                now.plusDays(25).withHour(11).withMinute(30),
                 50);
 
-        // EVT-1006: Completed Event to showcase check-ins and ratings
+        // EVT-1006: Completed event to showcase check-ins and ratings
         Event e6 = new Event("EVT-1006", "CodeCraft 2026 Orientation",
                 "Welcoming session and kickoff for competitive programming participants.",
                 "USR-1002", "Seminar", "Multimedia Amphitheater",
-                now.minusDays(5).withHour(14).withMinute(0).withSecond(0),
-                now.minusDays(5).withHour(16).withMinute(0).withSecond(0),
+                now.minusDays(5).withHour(14).withMinute(0),
+                now.minusDays(5).withHour(16).withMinute(0),
                 40);
         e6.setStatus(EventStatus.COMPLETED);
 
@@ -338,16 +349,14 @@ public class DataStore {
         registrationRepository.add(new Registration("REG-1002", "EVT-1001", "USR-1005", RegistrationStatus.CONFIRMED));
         registrationRepository.add(new Registration("REG-1003", "EVT-1001", "USR-1006", RegistrationStatus.CONFIRMED));
 
-        // EVT-1002: Capacity 3!
-        // 3 Confirmed:
+        // EVT-1002: capacity 3, fully booked
         registrationRepository.add(new Registration("REG-1004", "EVT-1002", "USR-1004", RegistrationStatus.CONFIRMED));
         registrationRepository.add(new Registration("REG-1005", "EVT-1002", "USR-1005", RegistrationStatus.CONFIRMED));
         registrationRepository.add(new Registration("REG-1006", "EVT-1002", "USR-1006", RegistrationStatus.CONFIRMED));
-        // 1 Waitlisted:
-        Registration waitlisted = new Registration("REG-1007", "EVT-1002", "USR-1007", RegistrationStatus.WAITLISTED);
-        registrationRepository.add(waitlisted);
+        // emily_watson waits at position #1 (the README demo promotes her)
+        registrationRepository.add(new Registration("REG-1007", "EVT-1002", "USR-1008", RegistrationStatus.WAITLISTED));
 
-        // EVT-1006 (Completed): Checked-in attendees
+        // EVT-1006 (Completed): two checked-in attendees and one no-show
         Registration regComp1 = new Registration("REG-1008", "EVT-1006", "USR-1004", RegistrationStatus.CHECKED_IN);
         regComp1.setCheckedInAt(now.minusDays(5).withHour(14).withMinute(5));
         Registration regComp2 = new Registration("REG-1009", "EVT-1006", "USR-1005", RegistrationStatus.CHECKED_IN);
@@ -358,7 +367,7 @@ public class DataStore {
         registrationRepository.add(regComp2);
         registrationRepository.add(regComp3);
 
-        // 5. Feedbacks for EVT-1006
+        // 5. Feedback for EVT-1006 (from the two checked-in attendees)
         Feedback fb1 = new Feedback("FB-1001", "EVT-1006", "USR-1004", 5, "Incredible kickoff session! Very informative and well-structured.");
         Feedback fb2 = new Feedback("FB-1002", "EVT-1006", "USR-1005", 4, "Great speakers and insightful presentation. Excited for the upcoming hackathon.");
         feedbackRepository.add(fb1);

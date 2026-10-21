@@ -2,13 +2,17 @@ package plano.service;
 
 import plano.model.*;
 import plano.repository.DataStore;
+import plano.repository.RegistrationRepository;
 
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * Service generating system-wide reports and analytics for Administrators
  * and scoped event performance metrics for Organizers.
+ * Registrations of cancelled events are left out of all totals, and the
+ * attendance rate only counts events that have been completed.
  */
 public class ReportService {
     private final DataStore dataStore;
@@ -21,34 +25,56 @@ public class ReportService {
 
     public AdminDashboardData getAdminDashboard() {
         AdminDashboardData data = new AdminDashboardData();
+        LocalDateTime now = LocalDateTime.now();
+        RegistrationRepository regRepo = dataStore.getRegistrationRepository();
         List<Event> allEvents = dataStore.getEventRepository().findAll();
-        List<Registration> allRegs = dataStore.getRegistrationRepository().findAll();
         List<User> allUsers = dataStore.getUserRepository().findAll();
 
+        Set<String> cancelledEventIds = new HashSet<>();
+        for (Event e : allEvents) {
+            if (e.isCancelled()) {
+                cancelledEventIds.add(e.getEventId());
+            }
+        }
+
         data.totalEvents = allEvents.size();
-        data.upcomingEvents = (int) allEvents.stream().filter(Event::isUpcoming).count();
+        data.upcomingEvents = (int) allEvents.stream().filter(e -> e.isUpcoming() && !e.hasEnded(now)).count();
+        data.ongoingEvents = (int) allEvents.stream().filter(e -> e.isOngoing() && !e.hasEnded(now)).count();
+        data.awaitingCompletionEvents = (int) allEvents.stream().filter(e -> e.isAwaitingCompletion(now)).count();
         data.completedEvents = (int) allEvents.stream().filter(Event::isCompleted).count();
-        data.cancelledEvents = (int) allEvents.stream().filter(Event::isCancelled).count();
+        data.cancelledEvents = cancelledEventIds.size();
 
         data.totalUsers = allUsers.size();
         data.totalOrganizers = (int) allUsers.stream().filter(User::isOrganizer).count();
         data.totalAttendees = (int) allUsers.stream().filter(User::isAttendee).count();
 
-        data.totalRegistrations = (int) allRegs.stream().filter(r -> !r.isCancelled()).count();
-        data.confirmedRegistrations = (int) allRegs.stream().filter(Registration::isConfirmed).count();
-        data.waitlistedRegistrations = (int) allRegs.stream().filter(Registration::isWaitlisted).count();
-        data.checkedInAttendees = (int) allRegs.stream().filter(Registration::isCheckedIn).count();
+        List<Registration> liveRegs = regRepo.findAll().stream()
+                .filter(r -> !cancelledEventIds.contains(r.getEventId()))
+                .collect(Collectors.toList());
+        data.totalRegistrations = (int) liveRegs.stream().filter(r -> !r.isCancelled()).count();
+        data.confirmedRegistrations = (int) liveRegs.stream().filter(Registration::isConfirmed).count();
+        data.waitlistedRegistrations = (int) liveRegs.stream().filter(Registration::isWaitlisted).count();
+        data.checkedInAttendees = (int) liveRegs.stream().filter(Registration::isCheckedIn).count();
 
-        int totalConfirmedAndCheckedIn = data.confirmedRegistrations + data.checkedInAttendees;
-        data.overallAttendanceRate = totalConfirmedAndCheckedIn > 0
-                ? ((double) data.checkedInAttendees / totalConfirmedAndCheckedIn) * 100.0
+        // Attendance rate (checked-in vs. registered) over completed events only
+        for (Event e : allEvents) {
+            if (e.isCompleted()) {
+                data.completedEventRegistrations += regRepo.countConfirmedByEvent(e.getEventId());
+                data.completedEventCheckIns += regRepo.countCheckedInByEvent(e.getEventId());
+            }
+        }
+        data.overallAttendanceRate = data.completedEventRegistrations > 0
+                ? ((double) data.completedEventCheckIns / data.completedEventRegistrations) * 100.0
                 : 0.0;
 
-        // Category Popularity: count registrations per category
+        // Category Popularity: seats taken per category, cancelled events excluded
         Map<String, Integer> catCounts = new LinkedHashMap<>();
         for (Event e : allEvents) {
+            if (e.isCancelled()) {
+                continue;
+            }
             String cat = e.getCategory() != null ? e.getCategory() : "Uncategorized";
-            int count = dataStore.getRegistrationRepository().countConfirmedByEvent(e.getEventId());
+            int count = regRepo.countConfirmedByEvent(e.getEventId());
             catCounts.put(cat, catCounts.getOrDefault(cat, 0) + count);
         }
         data.categoryPopularity = catCounts.entrySet().stream()
@@ -65,8 +91,11 @@ public class ReportService {
                     int totalRegistrations = 0;
                     int totalCheckedIn = 0;
                     for (Event ev : orgEvents) {
-                        totalRegistrations += dataStore.getRegistrationRepository().countConfirmedByEvent(ev.getEventId());
-                        totalCheckedIn += dataStore.getRegistrationRepository().countCheckedInByEvent(ev.getEventId());
+                        if (ev.isCancelled()) {
+                            continue;
+                        }
+                        totalRegistrations += regRepo.countConfirmedByEvent(ev.getEventId());
+                        totalCheckedIn += regRepo.countCheckedInByEvent(ev.getEventId());
                     }
                     orgList.add(new OrganizerStats(u.getUserId(), u.getFullName(), u.getUsername(), eventCount, totalRegistrations, totalCheckedIn));
                 }
@@ -82,10 +111,14 @@ public class ReportService {
 
     public OrganizerDashboardData getOrganizerDashboard(String organizerId) {
         OrganizerDashboardData data = new OrganizerDashboardData();
+        LocalDateTime now = LocalDateTime.now();
+        RegistrationRepository regRepo = dataStore.getRegistrationRepository();
         List<Event> orgEvents = dataStore.getEventRepository().findByOrganizer(organizerId);
 
         data.totalEvents = orgEvents.size();
-        data.upcomingEvents = (int) orgEvents.stream().filter(Event::isUpcoming).count();
+        data.upcomingEvents = (int) orgEvents.stream().filter(e -> e.isUpcoming() && !e.hasEnded(now)).count();
+        data.ongoingEvents = (int) orgEvents.stream().filter(e -> e.isOngoing() && !e.hasEnded(now)).count();
+        data.awaitingCompletionEvents = (int) orgEvents.stream().filter(e -> e.isAwaitingCompletion(now)).count();
         data.completedEvents = (int) orgEvents.stream().filter(Event::isCompleted).count();
         data.cancelledEvents = (int) orgEvents.stream().filter(Event::isCancelled).count();
 
@@ -95,15 +128,17 @@ public class ReportService {
         int totalCheckIn = 0;
 
         for (Event ev : orgEvents) {
-            int confirmed = dataStore.getRegistrationRepository().countConfirmedByEvent(ev.getEventId());
-            int waitlisted = dataStore.getRegistrationRepository().countWaitlistedByEvent(ev.getEventId());
-            int checkedIn = dataStore.getRegistrationRepository().countCheckedInByEvent(ev.getEventId());
+            int confirmed = regRepo.countConfirmedByEvent(ev.getEventId());
+            int waitlisted = regRepo.countWaitlistedByEvent(ev.getEventId());
+            int checkedIn = regRepo.countCheckedInByEvent(ev.getEventId());
             double avgRating = dataStore.getFeedbackRepository().getAverageRatingForEvent(ev.getEventId());
             int reviewCount = dataStore.getFeedbackRepository().findByEvent(ev.getEventId()).size();
 
-            totalReg += confirmed;
-            totalWait += waitlisted;
-            totalCheckIn += checkedIn;
+            if (!ev.isCancelled()) {
+                totalReg += confirmed;
+                totalWait += waitlisted;
+                totalCheckIn += checkedIn;
+            }
 
             performanceList.add(new EventPerformance(
                     ev.getEventId(),
@@ -131,6 +166,9 @@ public class ReportService {
     public static class AdminDashboardData {
         public int totalEvents;
         public int upcomingEvents;
+        public int ongoingEvents;
+        /** Events whose end time has passed but that were never marked Completed. */
+        public int awaitingCompletionEvents;
         public int completedEvents;
         public int cancelledEvents;
 
@@ -138,10 +176,15 @@ public class ReportService {
         public int totalOrganizers;
         public int totalAttendees;
 
+        /** Active registrations (confirmed + checked in + waitlisted) of events that are not cancelled. */
         public int totalRegistrations;
         public int confirmedRegistrations;
         public int waitlistedRegistrations;
         public int checkedInAttendees;
+
+        /** Seats taken at completed events, and how many of those people checked in. */
+        public int completedEventRegistrations;
+        public int completedEventCheckIns;
         public double overallAttendanceRate;
 
         public Map<String, Integer> categoryPopularity;
@@ -176,6 +219,9 @@ public class ReportService {
     public static class OrganizerDashboardData {
         public int totalEvents;
         public int upcomingEvents;
+        public int ongoingEvents;
+        /** Events whose end time has passed but that were never marked Completed. */
+        public int awaitingCompletionEvents;
         public int completedEvents;
         public int cancelledEvents;
 

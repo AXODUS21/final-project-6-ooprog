@@ -136,7 +136,7 @@ public class User {
         Object act = map.get("active");
         user.setActive(act instanceof Boolean ? (Boolean) act : Boolean.parseBoolean(String.valueOf(act)));
         String ca = (String) map.get("createdAt");
-        if (ca != null && !ca.isBlank()) {
+        if (ca != null && !ca.trim().isEmpty()) {
             try {
                 user.setCreatedAt(LocalDateTime.parse(ca, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             } catch (Exception e) {

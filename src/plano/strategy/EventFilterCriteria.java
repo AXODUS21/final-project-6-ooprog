@@ -84,9 +84,9 @@ public class EventFilterCriteria {
     }
 
     public boolean hasActiveFilters() {
-        return (textQuery != null && !textQuery.isBlank()) ||
-                (category != null && !category.isBlank()) ||
-                (venue != null && !venue.isBlank()) ||
+        return (textQuery != null && !textQuery.trim().isEmpty()) ||
+                (category != null && !category.trim().isEmpty()) ||
+                (venue != null && !venue.trim().isEmpty()) ||
                 fromDate != null ||
                 toDate != null ||
                 status != null ||

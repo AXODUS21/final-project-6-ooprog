@@ -10,6 +10,7 @@ import plano.util.TableRenderer;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -58,20 +59,39 @@ public class AdminMenu {
 
             int choice = ConsoleIO.readInt("Select an option", 0, 9);
             switch (choice) {
-                case 1 -> browseEvents();
-                case 2 -> createEvent();
-                case 3 -> manageEvent();
-                case 4 -> manageCheckIns();
-                case 5 -> viewEventFeedback();
-                case 6 -> manageUsers();
-                case 7 -> manageCategories();
-                case 8 -> viewDashboard();
-                case 9 -> configureSortAndFilter();
-                case 0 -> {
+                case 1:
+                    browseEvents();
+                    break;
+                case 2:
+                    createEvent();
+                    break;
+                case 3:
+                    manageEvent();
+                    break;
+                case 4:
+                    manageCheckIns();
+                    break;
+                case 5:
+                    viewEventFeedback();
+                    break;
+                case 6:
+                    manageUsers();
+                    break;
+                case 7:
+                    manageCategories();
+                    break;
+                case 8:
+                    viewDashboard();
+                    break;
+                case 9:
+                    configureSortAndFilter();
+                    break;
+                case 0:
                     authService.logout();
                     ConsoleIO.printSuccess("Logged out successfully.");
                     return;
-                }
+                default:
+                    break;
             }
         }
     }
@@ -185,7 +205,7 @@ public class AdminMenu {
         String eventId = ConsoleIO.readEventId("Enter Event ID to manage (e.g. EVT-1001)");
         if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
@@ -195,21 +215,27 @@ public class AdminMenu {
         System.out.println("Selected: " + ConsoleIO.BOLD + event.getTitle() + " (" + event.getEventId() + ")" + ConsoleIO.RESET);
         System.out.println("Current Status: " + event.getStatus().getDisplayName() + " | Venue: " + event.getVenue());
         System.out.println("1. Edit Event Details");
-        System.out.println("2. Change Event Status (Upcoming / Ongoing / Completed)");
+        System.out.println("2. Advance Event Status (Ongoing / Completed)");
         System.out.println("3. Cancel Event");
         System.out.println("0. Back");
 
         int choice = ConsoleIO.readInt("Action", 0, 3);
         switch (choice) {
-            case 1 -> editEventDetails(event);
-            case 2 -> changeEventStatus(event);
-            case 3 -> {
+            case 1:
+                editEventDetails(event);
+                break;
+            case 2:
+                changeEventStatus(event);
+                break;
+            case 3:
                 if (ConsoleIO.readConfirmation("Are you sure you want to cancel event '" + event.getTitle() + "'?")) {
                     EventService.EventResult res = eventService.cancelEvent(authService.getCurrentUser(), eventId);
                     if (res.success) ConsoleIO.printSuccess(res.message);
                     else ConsoleIO.printError(res.message);
                 }
-            }
+                break;
+            default:
+                break;
         }
         ConsoleIO.pause();
     }
@@ -230,7 +256,7 @@ public class AdminMenu {
 
         EventService.EventResult res = eventService.updateEvent(
                 authService.getCurrentUser(), event.getEventId(), title, desc, event.getCategory(),
-                venue, start, end, cap, event.getStatus()
+                venue, start, end, cap
         );
 
         if (res.success) ConsoleIO.printSuccess(res.message);
@@ -238,17 +264,16 @@ public class AdminMenu {
     }
 
     private void changeEventStatus(Event event) {
+        System.out.println("Current Status: " + event.getStatus().getDisplayName() + " (statuses only move forward)");
         System.out.println("Select New Status:");
-        System.out.println(" 1. UPCOMING");
-        System.out.println(" 2. ONGOING");
-        System.out.println(" 3. COMPLETED");
-        int opt = ConsoleIO.readInt("Choice", 1, 3);
-        EventStatus newStatus = switch (opt) {
-            case 1 -> EventStatus.UPCOMING;
-            case 2 -> EventStatus.ONGOING;
-            case 3 -> EventStatus.COMPLETED;
-            default -> event.getStatus();
-        };
+        System.out.println(" 1. ONGOING");
+        System.out.println(" 2. COMPLETED");
+        System.out.println(" 0. Back");
+        int opt = ConsoleIO.readInt("Choice", 0, 2);
+        if (opt == 0) {
+            return;
+        }
+        EventStatus newStatus = opt == 1 ? EventStatus.ONGOING : EventStatus.COMPLETED;
 
         EventService.EventResult res = eventService.updateEventStatus(authService.getCurrentUser(), event.getEventId(), newStatus);
         if (res.success) ConsoleIO.printSuccess(res.message);
@@ -266,7 +291,7 @@ public class AdminMenu {
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1001)");
         if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
@@ -315,7 +340,7 @@ public class AdminMenu {
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1001)");
         if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
@@ -419,7 +444,7 @@ public class AdminMenu {
             String id = ConsoleIO.readCategoryId("Enter Category ID to remove (e.g. CAT-101)");
             if (id == null) return;
             Optional<Category> catOpt = dataStore.getCategoryRepository().findById(id);
-            if (catOpt.isEmpty()) {
+            if (!catOpt.isPresent()) {
                 ConsoleIO.printError("Category not found with ID: " + id);
             } else {
                 Category cat = catOpt.get();
@@ -443,24 +468,25 @@ public class AdminMenu {
         ConsoleIO.printSection("System-Wide Analytical Reports & Dashboard");
         ReportService.AdminDashboardData dash = reportService.getAdminDashboard();
 
-        System.out.println(ConsoleIO.BOLD + "📊 SYSTEM METRICS OVERVIEW" + ConsoleIO.RESET);
-        System.out.printf("  Total Events: %d  (Upcoming: %d | Completed: %d | Cancelled: %d)\n",
-                dash.totalEvents, dash.upcomingEvents, dash.completedEvents, dash.cancelledEvents);
+        System.out.println(ConsoleIO.BOLD + "SYSTEM METRICS OVERVIEW" + ConsoleIO.RESET);
+        System.out.printf("  Total Events: %d  (Upcoming: %d | Ongoing: %d | Completed: %d | Cancelled: %d | Ended, not marked completed: %d)\n",
+                dash.totalEvents, dash.upcomingEvents, dash.ongoingEvents, dash.completedEvents,
+                dash.cancelledEvents, dash.awaitingCompletionEvents);
         System.out.printf("  Registered Users: %d  (Organizers: %d | Attendees: %d)\n",
                 dash.totalUsers, dash.totalOrganizers, dash.totalAttendees);
-        System.out.printf("  Total Active Registrations: %d  (Confirmed: %d | Waitlisted: %d)\n",
-                dash.totalRegistrations, dash.confirmedRegistrations, dash.waitlistedRegistrations);
-        System.out.printf("  Overall Attendance Rate: %.1f%%  (Checked-In: %d attendees)\n\n",
-                dash.overallAttendanceRate, dash.checkedInAttendees);
+        System.out.printf("  Total Active Registrations: %d  (Confirmed: %d | Checked-in: %d | Waitlisted: %d)\n",
+                dash.totalRegistrations, dash.confirmedRegistrations, dash.checkedInAttendees, dash.waitlistedRegistrations);
+        System.out.printf("  Attendance Rate (completed events): %.1f%%  (%d of %d registered attendees checked in)\n\n",
+                dash.overallAttendanceRate, dash.completedEventCheckIns, dash.completedEventRegistrations);
 
-        System.out.println(ConsoleIO.BOLD + "📈 CATEGORY POPULARITY (Total Registrations)" + ConsoleIO.RESET);
+        System.out.println(ConsoleIO.BOLD + "CATEGORY POPULARITY (Seats taken, cancelled events excluded)" + ConsoleIO.RESET);
         TableRenderer catTable = new TableRenderer("Category", "Registrations Hosted");
-        for (var entry : dash.categoryPopularity.entrySet()) {
+        for (Map.Entry<String, Integer> entry : dash.categoryPopularity.entrySet()) {
             catTable.addRow(entry.getKey(), String.valueOf(entry.getValue()));
         }
         catTable.render();
 
-        System.out.println(ConsoleIO.BOLD + "🏆 ORGANIZER ACTIVITY LEADERBOARD" + ConsoleIO.RESET);
+        System.out.println(ConsoleIO.BOLD + "ORGANIZER ACTIVITY LEADERBOARD" + ConsoleIO.RESET);
         TableRenderer orgTable = new TableRenderer("Organizer", "Username", "Events Created", "Total Registrations", "Checked-in Attendees");
         for (ReportService.OrganizerStats s : dash.organizerStats) {
             orgTable.addRow(s.getFullName(), s.getUsername(), String.valueOf(s.getEventCount()),
@@ -485,37 +511,39 @@ public class AdminMenu {
 
         int choice = ConsoleIO.readInt("Choose option", 0, 7);
         switch (choice) {
-            case 1 -> {
+            case 1:
                 currentSortStrategy = new SortByDateAscStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 2 -> {
+                break;
+            case 2:
                 currentSortStrategy = new SortByDateDescStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 3 -> {
+                break;
+            case 3:
                 currentSortStrategy = new SortByPopularityStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 4 -> {
+                break;
+            case 4:
                 currentSortStrategy = new SortByTitleStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 5 -> {
+                break;
+            case 5:
                 currentSortStrategy = new SortByCapacityStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 6 -> {
+                break;
+            case 6:
                 String kw = ConsoleIO.readString("Search keyword (title/description/venue, or leave blank)");
                 activeFilterCriteria.setTextQuery(kw);
                 String cat = ConsoleIO.readString("Category filter (or leave blank)");
                 activeFilterCriteria.setCategory(cat);
                 ConsoleIO.printSuccess("Filters applied.");
-            }
-            case 7 -> {
+                break;
+            case 7:
                 activeFilterCriteria.reset();
                 ConsoleIO.printSuccess("All filters cleared.");
-            }
+                break;
+            default:
+                break;
         }
         ConsoleIO.pause();
     }

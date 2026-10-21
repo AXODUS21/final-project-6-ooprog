@@ -7,6 +7,7 @@ import java.util.Scanner;
 
 /**
  * Handles terminal I/O, ANSI colors, formatted banners, and safe user input prompts.
+ * All output is plain ASCII so it displays the same on every console and Java version.
  */
 public class ConsoleIO {
     // ANSI color codes
@@ -38,37 +39,50 @@ public class ConsoleIO {
         System.out.flush();
     }
 
+    /** Repeats a string, e.g. repeat("=", 3) returns "===". */
+    public static String repeat(String text, int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            sb.append(text);
+        }
+        return sb.toString();
+    }
+
+    private static boolean isBlank(String text) {
+        return text == null || text.trim().isEmpty();
+    }
+
     public static void printBanner(String title, String subtitle) {
         int width = 76;
-        String line = "═".repeat(width);
-        System.out.println(CYAN + BOLD + "╔" + line + "╗" + RESET);
-        System.out.println(CYAN + BOLD + "║" + centerText(title, width) + "║" + RESET);
-        if (subtitle != null && !subtitle.isBlank()) {
-            System.out.println(CYAN + "║" + centerText(subtitle, width) + "║" + RESET);
+        String line = repeat("=", width);
+        System.out.println(CYAN + BOLD + "+" + line + "+" + RESET);
+        System.out.println(CYAN + BOLD + "|" + centerText(title, width) + "|" + RESET);
+        if (!isBlank(subtitle)) {
+            System.out.println(CYAN + "|" + centerText(subtitle, width) + "|" + RESET);
         }
-        System.out.println(CYAN + BOLD + "╚" + line + "╝" + RESET);
+        System.out.println(CYAN + BOLD + "+" + line + "+" + RESET);
     }
 
     public static void printSection(String title) {
         System.out.println();
-        System.out.println(BOLD + BLUE + "▶ " + title.toUpperCase() + RESET);
-        System.out.println(DIM + "─".repeat(Math.max(40, title.length() + 4)) + RESET);
+        System.out.println(BOLD + BLUE + "> " + title.toUpperCase() + RESET);
+        System.out.println(DIM + repeat("-", Math.max(40, title.length() + 4)) + RESET);
     }
 
     public static void printSuccess(String message) {
-        System.out.println(GREEN + BOLD + "✓ " + RESET + GREEN + message + RESET);
+        System.out.println(GREEN + BOLD + "[OK] " + RESET + GREEN + message + RESET);
     }
 
     public static void printError(String message) {
-        System.out.println(RED + BOLD + "✗ Error: " + RESET + RED + message + RESET);
+        System.out.println(RED + BOLD + "[ERROR] " + RESET + RED + message + RESET);
     }
 
     public static void printWarning(String message) {
-        System.out.println(YELLOW + BOLD + "⚠ Warning: " + RESET + YELLOW + message + RESET);
+        System.out.println(YELLOW + BOLD + "[WARNING] " + RESET + YELLOW + message + RESET);
     }
 
     public static void printInfo(String message) {
-        System.out.println(CYAN + "ℹ " + message + RESET);
+        System.out.println(CYAN + "[INFO] " + message + RESET);
     }
 
     public static boolean isCancelToken(String input) {
@@ -77,18 +91,23 @@ public class ConsoleIO {
         return s.equalsIgnoreCase("cancel") || s.equals("0") || s.equalsIgnoreCase(":back") || s.equalsIgnoreCase("back");
     }
 
+    /**
+     * Reads one trimmed line.
+     *
+     * @throws InputClosedException if the input stream has ended
+     */
     public static String readString(String prompt) {
         System.out.print(BOLD + prompt + ": " + RESET);
-        if (scanner.hasNextLine()) {
-            return scanner.nextLine().trim();
+        if (!scanner.hasNextLine()) {
+            throw new InputClosedException();
         }
-        return "";
+        return scanner.nextLine().trim();
     }
 
     public static String readNonEmptyString(String prompt) {
         while (true) {
             String val = readString(prompt);
-            if (!val.isBlank()) {
+            if (!isBlank(val)) {
                 return val;
             }
             printError("This field cannot be empty. Please enter a valid value.");
@@ -96,11 +115,11 @@ public class ConsoleIO {
     }
 
     public static String readOptionalString(String prompt, String defaultValue) {
-        String promptWithDefault = defaultValue == null || defaultValue.isBlank()
+        String promptWithDefault = isBlank(defaultValue)
                 ? prompt
                 : prompt + " [" + defaultValue + "]";
         String val = readString(promptWithDefault);
-        if (val.isBlank() && defaultValue != null) {
+        if (isBlank(val) && defaultValue != null) {
             return defaultValue;
         }
         return val;
@@ -109,7 +128,7 @@ public class ConsoleIO {
     public static int readInt(String prompt, int min, int max) {
         while (true) {
             String input = readString(prompt + " (" + min + " - " + max + ")");
-            if (input.isBlank()) {
+            if (isBlank(input)) {
                 printError("This field cannot be empty. Please enter a number.");
                 continue;
             }
@@ -152,7 +171,7 @@ public class ConsoleIO {
             if (isCancelToken(input)) {
                 return null;
             }
-            if (input.isBlank()) {
+            if (isBlank(input)) {
                 printError("This field cannot be empty. Please enter a positive integer.");
                 continue;
             }
@@ -184,7 +203,7 @@ public class ConsoleIO {
     public static int readOptionalPositiveInt(String prompt, int defaultValue) {
         while (true) {
             String input = readString(prompt + " [" + defaultValue + "]");
-            if (input.isBlank()) {
+            if (isBlank(input)) {
                 return defaultValue;
             }
             if (InputValidator.hasDecimalOrTrailingZeroes(input)) {
@@ -278,7 +297,7 @@ public class ConsoleIO {
         while (true) {
             System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (leave empty to keep [" + defaultStr + "])" + RESET);
             String input = readString(prompt);
-            if (input.isBlank()) {
+            if (isBlank(input)) {
                 return defaultValue;
             }
             try {
@@ -305,7 +324,7 @@ public class ConsoleIO {
         while (true) {
             System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (leave empty to keep [" + defaultStr + "])" + RESET);
             String input = readString(prompt);
-            if (input.isBlank()) {
+            if (isBlank(input)) {
                 return defaultValue;
             }
             try {
@@ -336,12 +355,12 @@ public class ConsoleIO {
     }
 
     public static String readOptionalEmail(String prompt, String defaultValue) {
-        String promptWithDefault = defaultValue == null || defaultValue.isBlank()
+        String promptWithDefault = isBlank(defaultValue)
                 ? prompt
                 : prompt + " [" + defaultValue + "]";
         while (true) {
             String val = readString(promptWithDefault);
-            if (val.isBlank() && defaultValue != null) {
+            if (isBlank(val) && defaultValue != null) {
                 return defaultValue;
             }
             if (InputValidator.isValidEmail(val)) {
@@ -481,7 +500,7 @@ public class ConsoleIO {
     public static String readDescription(String prompt, int maxLen) {
         while (true) {
             String val = readString(prompt + " (optional, max " + maxLen + " chars)");
-            if (val.isBlank()) {
+            if (isBlank(val)) {
                 return "";
             }
             if (val.trim().length() <= maxLen) {
@@ -518,6 +537,6 @@ public class ConsoleIO {
         int totalPad = width - text.length();
         int padLeft = totalPad / 2;
         int padRight = totalPad - padLeft;
-        return " ".repeat(padLeft) + text + " ".repeat(padRight);
+        return repeat(" ", padLeft) + text + repeat(" ", padRight);
     }
 }

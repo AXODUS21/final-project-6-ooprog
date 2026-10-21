@@ -77,8 +77,13 @@ public class Feedback {
         this.submittedAt = submittedAt;
     }
 
+    /** Plain-ASCII rating bar, e.g. "****-" for 4 out of 5. */
     public String getStarsDisplay() {
-        return "★".repeat(rating) + "☆".repeat(5 - rating);
+        StringBuilder sb = new StringBuilder(5);
+        for (int i = 1; i <= 5; i++) {
+            sb.append(i <= rating ? '*' : '-');
+        }
+        return sb.toString();
     }
 
     public Map<String, Object> toMap() {
@@ -109,7 +114,7 @@ public class Feedback {
         fb.setComment((String) map.get("comment"));
 
         String sa = (String) map.get("submittedAt");
-        if (sa != null && !sa.isBlank()) {
+        if (sa != null && !sa.trim().isEmpty()) {
             fb.setSubmittedAt(LocalDateTime.parse(sa, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         }
 

@@ -44,18 +44,18 @@ public class TableRenderer {
         }
 
         // Top Border
-        printDivider("┌", "┬", "┐", colWidths);
+        printDivider(colWidths);
 
         // Header Row
         printRow(headers, colWidths, ConsoleIO.BOLD + ConsoleIO.CYAN);
 
         // Header Separator
-        printDivider("├", "┼", "┤", colWidths);
+        printDivider(colWidths);
 
         // Data Rows
         if (rows.isEmpty()) {
             int totalWidth = colWidths.stream().mapToInt(Integer::intValue).sum() + (colWidths.size() - 1) * 3;
-            System.out.println("│ " + ConsoleIO.DIM + ConsoleIO.centerText("No records found", totalWidth) + ConsoleIO.RESET + " │");
+            System.out.println("| " + ConsoleIO.DIM + ConsoleIO.centerText("No records found", totalWidth) + ConsoleIO.RESET + " |");
         } else {
             for (List<String> row : rows) {
                 printRow(row, colWidths, ConsoleIO.RESET);
@@ -63,12 +63,12 @@ public class TableRenderer {
         }
 
         // Bottom Border
-        printDivider("└", "┴", "┘", colWidths);
+        printDivider(colWidths);
     }
 
     private void printRow(List<String> cells, List<Integer> widths, String style) {
         StringBuilder sb = new StringBuilder();
-        sb.append("│");
+        sb.append("|");
         for (int i = 0; i < widths.size(); i++) {
             String raw = i < cells.size() ? cells.get(i) : "";
             int width = widths.get(i);
@@ -79,23 +79,21 @@ public class TableRenderer {
             sb.append(" ");
             sb.append(style);
             sb.append(display);
-            sb.append(" ".repeat(Math.max(0, width - display.length())));
+            sb.append(ConsoleIO.repeat(" ", Math.max(0, width - display.length())));
             sb.append(ConsoleIO.RESET);
-            sb.append(" │");
+            sb.append(" |");
         }
         System.out.println(sb.toString());
     }
 
-    private void printDivider(String left, String mid, String right, List<Integer> widths) {
+    /** Prints a border line such as +------+-----+. */
+    private void printDivider(List<Integer> widths) {
         StringBuilder sb = new StringBuilder();
-        sb.append(left);
+        sb.append("+");
         for (int i = 0; i < widths.size(); i++) {
-            sb.append("─".repeat(widths.get(i) + 2));
-            if (i < widths.size() - 1) {
-                sb.append(mid);
-            }
+            sb.append(ConsoleIO.repeat("-", widths.get(i) + 2));
+            sb.append("+");
         }
-        sb.append(right);
         System.out.println(sb.toString());
     }
 }

@@ -1,7 +1,6 @@
 package plano.ui;
 
 import plano.model.Event;
-import plano.model.Role;
 import plano.model.User;
 import plano.repository.DataStore;
 import plano.service.*;
@@ -60,15 +59,25 @@ public class MenuController {
 
             int choice = ConsoleIO.readInt("Select an option", 0, 4);
             switch (choice) {
-                case 1 -> handleLogin();
-                case 2 -> handleRegister();
-                case 3 -> browsePublicEvents();
-                case 4 -> displayDemoCredentials();
-                case 0 -> {
+                case 1:
+                    handleLogin();
+                    break;
+                case 2:
+                    handleRegister();
+                    break;
+                case 3:
+                    browsePublicEvents();
+                    break;
+                case 4:
+                    displayDemoCredentials();
+                    break;
+                case 0:
                     ConsoleIO.printSuccess("Thank you for using PlanO. Goodbye!");
                     dataStore.saveAll();
                     running = false;
-                }
+                    break;
+                default:
+                    break;
             }
         }
     }
@@ -148,15 +157,10 @@ public class MenuController {
             return;
         }
 
-        System.out.println("Select Account Type:");
-        System.out.println("  1. Regular User / Attendee (Discover & RSVP to events)");
-        System.out.println("  2. Event Organizer (Create & host events)");
-        int roleOpt = ConsoleIO.readInt("Role Choice", 1, 2);
-        Role role = roleOpt == 2 ? Role.ORGANIZER : Role.ATTENDEE;
-
-        AuthService.RegisterResult res = authService.register(username, password, fullName, email, role);
+        AuthService.RegisterResult res = authService.register(username, password, fullName, email);
         if (res.success) {
             ConsoleIO.printSuccess(res.message);
+            ConsoleIO.printInfo("New accounts are Attendee accounts. An Administrator can promote you to Event Organizer.");
         } else {
             ConsoleIO.printError(res.message);
         }
@@ -197,20 +201,23 @@ public class MenuController {
         System.out.println("The system comes pre-seeded with sample data to demonstrate all features:\n");
 
         TableRenderer table = new TableRenderer("Role", "Username", "Password", "Full Name", "Description");
-        table.addRow("ADMIN", "admin", "admin123", "System Administrator", "Full oversight, user management, and analytics");
-        table.addRow("ORGANIZER", "courtney_org", "org123", "Courtney Judge Fabello", "Host of EVT-1001, EVT-1002 (at capacity), EVT-1006");
-        table.addRow("ORGANIZER", "gavin_org", "org123", "Gavin Hadrian Lodor", "Host of EVT-1003, EVT-1004");
-        table.addRow("ATTENDEE", "axellerosh", "user123", "Axellerosh Lubi", "Registered for EVT-1001, EVT-1002, EVT-1006");
-        table.addRow("ATTENDEE", "emily_watson", "user123", "Emily Watson", "On the waitlist for EVT-1002 (cancel one spot to auto-promote!)");
+        table.addRow("ADMIN", "admin", "admin123", "System Administrator", "Full oversight, users, categories, reports");
+        table.addRow("ORGANIZER", "courtney_org", "org123", "Courtney Judge Fabello", "Hosts EVT-1001, 1002 (full), 1005, 1006");
+        table.addRow("ORGANIZER", "gavin_org", "org123", "Gavin Hadrian Lodor", "Hosts EVT-1003, EVT-1004");
+        table.addRow("ATTENDEE", "axellerosh", "user123", "Axellerosh Lubi", "EVT-1001, 1002; checked in at EVT-1006");
+        table.addRow("ATTENDEE", "john_doe", "user123", "John Doe", "EVT-1001, 1002; checked in at EVT-1006");
+        table.addRow("ATTENDEE", "jane_smith", "user123", "Jane Smith", "EVT-1001, 1002; no-show at EVT-1006");
+        table.addRow("ATTENDEE", "mark_lee", "user123", "Mark Lee", "No registrations yet");
+        table.addRow("ATTENDEE", "emily_watson", "user123", "Emily Watson", "Waitlist #1 on EVT-1002");
         table.render();
 
         System.out.println(ConsoleIO.BOLD + "Key Highlights to Test:" + ConsoleIO.RESET);
-        System.out.println(" • " + ConsoleIO.BOLD + "Waitlist Auto-Promotion:" + ConsoleIO.RESET + " Log in as 'axellerosh', cancel EVT-1002 registration. Notice how 'emily_watson' is automatically promoted from Waitlist to Confirmed!");
-        System.out.println(" • " + ConsoleIO.BOLD + "Conflict Detection:" + ConsoleIO.RESET + " Log in as Organizer, try to create an event at 'Grand Auditorium A' during an overlapping time window.");
-        System.out.println(" • " + ConsoleIO.BOLD + "Strategy Pattern:" + ConsoleIO.RESET + " Browse events and swap sorting by Popularity, Date, Alphabetical, or Capacity at runtime.");
-        System.out.println(" • " + ConsoleIO.BOLD + "Attendance & Reviews:" + ConsoleIO.RESET + " Check in attendees for EVT-1006, view post-event 5-star feedback, or submit a new review.");
-        System.out.println(" • " + ConsoleIO.BOLD + "Admin Dashboard:" + ConsoleIO.RESET + " Log in as 'admin' and view system-wide KPI metrics, category popularity, and organizer leaderboards.");
-        System.out.println(" • " + ConsoleIO.BOLD + "Persistence:" + ConsoleIO.RESET + " All state is saved to JSON files in the 'data/' directory between runs.");
+        System.out.println(" - " + ConsoleIO.BOLD + "Waitlist Auto-Promotion:" + ConsoleIO.RESET + " Log in as 'axellerosh' and cancel the EVT-1002 registration (REG-1004). 'emily_watson' is automatically promoted from the waitlist to Confirmed.");
+        System.out.println(" - " + ConsoleIO.BOLD + "Conflict Detection:" + ConsoleIO.RESET + " Log in as an Organizer and try to create an event at 'Grand Auditorium A' during an overlapping time window.");
+        System.out.println(" - " + ConsoleIO.BOLD + "Strategy Pattern:" + ConsoleIO.RESET + " Browse events and swap sorting by Popularity, Date, Alphabetical, or Capacity at runtime.");
+        System.out.println(" - " + ConsoleIO.BOLD + "Attendance & Reviews:" + ConsoleIO.RESET + " Check in 'jane_smith' (USR-1006) for EVT-1006, view its reviews, or log in as 'axellerosh' to update a review. Only checked-in attendees can review.");
+        System.out.println(" - " + ConsoleIO.BOLD + "Admin Dashboard:" + ConsoleIO.RESET + " Log in as 'admin' and view system-wide metrics, category popularity, and organizer leaderboards.");
+        System.out.println(" - " + ConsoleIO.BOLD + "Persistence:" + ConsoleIO.RESET + " All changes are saved to JSON files in the 'data/' folder, which is created with this demo data on the first run.");
 
         ConsoleIO.pause();
     }

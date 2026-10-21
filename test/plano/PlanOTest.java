@@ -1,6 +1,7 @@
 package plano;
 
 import plano.model.*;
+import plano.repository.DataLoadException;
 import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.*;
@@ -8,6 +9,12 @@ import plano.util.ConsoleIO;
 import plano.util.InputValidator;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +56,7 @@ public class PlanOTest {
         testDataPersistenceReload(testDataDir);
         testEnhancedInputValidation(authService, eventService, registrationService, feedbackService, dataStore);
         testEmptyDatabaseAndNumericFormatting();
+        testRuleFixes();
 
         // Cleanup
         cleanDirectory(new File(testDataDir));
@@ -84,15 +92,15 @@ public class PlanOTest {
         assertTrue("Invalid password fails login", !badLogin.success);
 
         // Register new attendee
-        AuthService.RegisterResult regResult = authService.register("newuser", "pass123", "New User", "new@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult regResult = authService.register("newuser", "pass123", "New User", "new@test.com");
         assertTrue("New attendee registration succeeds", regResult.success);
 
         // Duplicate username rejected
-        AuthService.RegisterResult dupUser = authService.register("newuser", "pass123", "Duplicate User", "dup@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult dupUser = authService.register("newuser", "pass123", "Duplicate User", "dup@test.com");
         assertTrue("Duplicate username registration is rejected", !dupUser.success);
 
         // Duplicate email rejected
-        AuthService.RegisterResult dupEmail = authService.register("anotheruser", "pass123", "Another User", "new@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult dupEmail = authService.register("anotheruser", "pass123", "Another User", "new@test.com");
         assertTrue("Duplicate email registration is rejected", !dupEmail.success);
     }
 
@@ -334,24 +342,24 @@ public class PlanOTest {
         System.out.println("\n--- Testing Enhanced Input Validation & Business Invariants ---");
 
         // 1. Username pattern validation
-        AuthService.RegisterResult shortUser = authService.register("ab", "pass123", "Short User", "short@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult shortUser = authService.register("ab", "pass123", "Short User", "short@test.com");
         assertTrue("Username under 3 chars is rejected", !shortUser.success);
 
-        AuthService.RegisterResult spaceUser = authService.register("bad user", "pass123", "Space User", "space@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult spaceUser = authService.register("bad user", "pass123", "Space User", "space@test.com");
         assertTrue("Username with spaces is rejected", !spaceUser.success);
 
         // 2. Password validation
-        AuthService.RegisterResult blankPass = authService.register("validuser1", "    ", "Blank Pass User", "blank@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult blankPass = authService.register("validuser1", "    ", "Blank Pass User", "blank@test.com");
         assertTrue("Password with whitespace only is rejected", !blankPass.success);
 
-        AuthService.RegisterResult shortPass = authService.register("validuser1b", "ab1", "Short Pass User", "shortp@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult shortPass = authService.register("validuser1b", "ab1", "Short Pass User", "shortp@test.com");
         assertTrue("Password under 6 chars is rejected", !shortPass.success);
 
-        AuthService.RegisterResult noNumPass = authService.register("validuser1c", "password", "No Digit Pass User", "nonum@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult noNumPass = authService.register("validuser1c", "password", "No Digit Pass User", "nonum@test.com");
         assertTrue("Password without digits is rejected", !noNumPass.success);
 
         // 3. Full name validation
-        AuthService.RegisterResult numName = authService.register("validuser2", "pass123", "John123", "num@test.com", Role.ATTENDEE);
+        AuthService.RegisterResult numName = authService.register("validuser2", "pass123", "John123", "num@test.com");
         assertTrue("Full name containing numbers is rejected", !numName.success);
 
         // 4. Non-existent category rejection
@@ -391,14 +399,14 @@ public class PlanOTest {
         Event evt1 = dataStore.getEventRepository().findById("EVT-1001").get();
         EventService.EventResult pastResched = eventService.updateEvent(
                 organizer, evt1.getEventId(), null, null, null, null,
-                LocalDateTime.now().minusDays(2), LocalDateTime.now().minusDays(1), -1, null
+                LocalDateTime.now().minusDays(2), LocalDateTime.now().minusDays(1), -1
         );
         assertTrue("Rescheduling an upcoming event into the past is rejected", !pastResched.success);
 
         // 8. Capacity reduction below confirmed attendees is rejected
         // EVT-1001 has 3 confirmed attendees in default data
         EventService.EventResult badCapReduce = eventService.updateEvent(
-                organizer, "EVT-1001", null, null, null, null, null, null, 1, null
+                organizer, "EVT-1001", null, null, null, null, null, null, 1
         );
         assertTrue("Reducing capacity below current confirmed attendee count is rejected", !badCapReduce.success);
 
@@ -465,7 +473,7 @@ public class PlanOTest {
         System.out.println("\n--- Testing Empty Database & Numeric/ID Format Validations ---");
 
         // 1. Empty database login rejection
-        String emptyDir = "empty_test_data";
+        String emptyDir = "test_data/empty";
         cleanDirectory(new File(emptyDir));
         DataStore emptyStore = new DataStore(emptyDir);
         // Clear all users to simulate empty user database
@@ -509,12 +517,220 @@ public class PlanOTest {
         assertTrue("'normal input' is not cancel token", !ConsoleIO.isCancelToken("normal input"));
     }
 
+    /**
+     * Regression checks for the rule fixes. Each group uses its own freshly seeded
+     * data folder so the checks do not depend on each other or on the tests above.
+     */
+    private static void testRuleFixes() {
+        System.out.println("\n--- Testing Rule Fixes (Regression Checks) ---");
+
+        // Rejected edits change nothing
+        DataStore edits = freshStore("edits");
+        EventService editEvents = new EventService(edits);
+        Event summit = edits.getEventRepository().findById("EVT-1001").get();
+        String oldTitle = summit.getTitle();
+        LocalDateTime oldStart = summit.getStartDateTime();
+        EventService.EventResult badEdit = editEvents.updateEvent(userNamed(edits, "courtney_org"), "EVT-1001",
+                "Renamed Summit", "New description", null, null,
+                oldStart.plusDays(1), summit.getEndDateTime().plusDays(1), 1);
+        assertTrue("Rejected event edit leaves the title and times unchanged",
+                !badEdit.success && summit.getTitle().equals(oldTitle) && summit.getStartDateTime().equals(oldStart));
+
+        User john = userNamed(edits, "john_doe");
+        UserService.OperationResult badProfile = new UserService(edits).updateProfile(john.getUserId(), "Johnny Changed", "admin@plano.edu", null);
+        assertTrue("Rejected profile update leaves the name unchanged",
+                !badProfile.success && john.getFullName().equals("John Doe"));
+
+        // Raising capacity promotes the waitlist (emily_watson is #1 on the full EVT-1002)
+        DataStore capacity = freshStore("capacity");
+        EventService.EventResult grow = new EventService(capacity).updateEvent(userNamed(capacity, "courtney_org"), "EVT-1002",
+                null, null, null, null, null, null, 4);
+        Registration emilyWaiting = capacity.getRegistrationRepository()
+                .findByEventAndUser("EVT-1002", userNamed(capacity, "emily_watson").getUserId()).get();
+        assertTrue("Raising capacity promotes the first waitlisted attendee", grow.success && emilyWaiting.isConfirmed());
+
+        // Promotion skips someone it would double-book and promotes the next person instead
+        DataStore booking = freshStore("double-booking");
+        EventService bookingEvents = new EventService(booking);
+        RegistrationService bookingRegs = new RegistrationService(booking);
+        User org = userNamed(booking, "courtney_org");
+        LocalDateTime slot = LocalDateTime.now().plusDays(50).withHour(10).withMinute(0);
+        Event sessionA = bookingEvents.createEvent(org, "Parallel Session A", "A", "Seminar", "Room A", slot, slot.plusHours(2), 1).event;
+        Event sessionB = bookingEvents.createEvent(org, "Parallel Session B", "B", "Seminar", "Room B", slot, slot.plusHours(2), 1).event;
+        Registration axelSeat = bookingRegs.register(userNamed(booking, "axellerosh"), sessionA.getEventId()).registration;
+        Registration johnSeat = bookingRegs.register(userNamed(booking, "john_doe"), sessionB.getEventId()).registration;
+        bookingRegs.register(userNamed(booking, "jane_smith"), sessionA.getEventId()); // waitlisted on A
+        bookingRegs.register(userNamed(booking, "jane_smith"), sessionB.getEventId()); // waitlisted on B
+        bookingRegs.register(userNamed(booking, "mark_lee"), sessionB.getEventId());   // waitlisted on B behind jane
+        bookingRegs.cancelRegistration(userNamed(booking, "axellerosh"), axelSeat.getRegistrationId()); // jane gets A
+        RegistrationService.CancellationResult freedB = bookingRegs.cancelRegistration(userNamed(booking, "john_doe"), johnSeat.getRegistrationId());
+        String janeId = userNamed(booking, "jane_smith").getUserId();
+        assertTrue("Promotion skips an attendee it would double-book and promotes the next one",
+                booking.getRegistrationRepository().findByEventAndUser(sessionA.getEventId(), janeId).get().isConfirmed()
+                        && booking.getRegistrationRepository().findByEventAndUser(sessionB.getEventId(), janeId).get().isWaitlisted()
+                        && freedB.promotedUser != null && "mark_lee".equals(freedB.promotedUser.getUsername()));
+
+        // Cancelling events, and the forward-only status lifecycle
+        DataStore lifecycle = freshStore("lifecycle");
+        EventService lifecycleEvents = new EventService(lifecycle);
+        RegistrationService lifecycleRegs = new RegistrationService(lifecycle);
+        User courtney = userNamed(lifecycle, "courtney_org");
+        EventService.EventResult cancelled = lifecycleEvents.cancelEvent(courtney, "EVT-1002");
+        long stillActive = lifecycleRegs.getRegistrationsForEvent("EVT-1002").stream()
+                .filter(r -> r.isConfirmed() || r.isWaitlisted()).count();
+        assertTrue("Cancelling an event cancels its confirmed and waitlisted registrations", cancelled.success && stillActive == 0);
+        RegistrationService.CancellationResult afterCancel = lifecycleRegs.cancelRegistration(userNamed(lifecycle, "axellerosh"), "REG-1004");
+        assertTrue("No waitlist promotion happens on a cancelled event", !afterCancel.success && afterCancel.promotedUser == null);
+        ReportService.AdminDashboardData lifecycleDash = new ReportService(lifecycle).getAdminDashboard();
+        assertTrue("Cancelled events are left out of category popularity",
+                lifecycleDash.categoryPopularity.getOrDefault("Workshop", 0) == 0);
+        assertTrue("A completed event cannot be cancelled", !lifecycleEvents.cancelEvent(courtney, "EVT-1006").success);
+        assertTrue("An event cannot be marked Ongoing before its start date",
+                !lifecycleEvents.updateEventStatus(courtney, "EVT-1001", EventStatus.ONGOING).success);
+        lifecycle.getEventRepository().findById("EVT-1003").get().setStatus(EventStatus.ONGOING);
+        assertTrue("An Ongoing event cannot move back to Upcoming",
+                !lifecycleEvents.updateEventStatus(userNamed(lifecycle, "gavin_org"), "EVT-1003", EventStatus.UPCOMING).success);
+
+        // Events whose end time has passed no longer count as upcoming
+        DataStore ended = freshStore("ended-events");
+        for (String id : new String[]{"EVT-1003", "EVT-1004"}) {
+            Event e = ended.getEventRepository().findById(id).get();
+            e.setStartDateTime(LocalDateTime.now().minusDays(3));
+            e.setEndDateTime(LocalDateTime.now().minusDays(3).plusHours(2));
+        }
+        ReportService.AdminDashboardData endedDash = new ReportService(ended).getAdminDashboard();
+        assertTrue("Ended events are counted as awaiting completion, not Upcoming",
+                endedDash.upcomingEvents == 3 && endedDash.awaitingCompletionEvents == 2);
+        assertTrue("An organizer whose events have all ended can be deactivated",
+                new UserService(ended).deactivateUser(userNamed(ended, "admin"), userNamed(ended, "gavin_org").getUserId()).success);
+
+        // Check-in window and whole-minute event times
+        DataStore timing = freshStore("timing");
+        RegistrationService.CheckInResult early = new RegistrationService(timing)
+                .checkInAttendee(userNamed(timing, "courtney_org"), "EVT-1001", "USR-1004");
+        assertTrue("Check-in is refused before the event day", !early.success && early.message.contains("event day"));
+        Event timedSummit = timing.getEventRepository().findById("EVT-1001").get();
+        assertTrue("Event times are stored as whole minutes",
+                timedSummit.getStartDateTime().getSecond() == 0 && timedSummit.getStartDateTime().getNano() == 0
+                        && timedSummit.getEndDateTime().getNano() == 0);
+        EventService.EventResult backToBack = new EventService(timing).createEvent(userNamed(timing, "gavin_org"),
+                "Evening Session", "Right after the summit", "Seminar", "Grand Auditorium A",
+                timedSummit.getEndDateTime(), timedSummit.getEndDateTime().plusHours(1), 20);
+        assertTrue("An event may start exactly when another ends at the same venue", backToBack.success);
+        Path timingEvents = Paths.get("test_data", "timing", "events.json");
+        writeText(timingEvents, readText(timingEvents).replaceFirst("(\"endDateTime\": \"[0-9T:-]+)\"", "$1.170016\""));
+        Event reloadedSummit = new DataStore(Paths.get("test_data", "timing").toString())
+                .getEventRepository().findById("EVT-1001").get();
+        assertTrue("Saved times with fractions of a second are rounded to the minute on load",
+                reloadedSummit.getEndDateTime().getNano() == 0);
+
+        // Category IDs are never reused
+        DataStore categories = freshStore("category-ids");
+        String gamingId = categories.nextCategoryId();
+        categories.getCategoryRepository().add(new Category(gamingId, "Gaming", "Video game events"));
+        categories.getCategoryRepository().delete("CAT-106");
+        String esportsId = categories.nextCategoryId();
+        categories.getCategoryRepository().add(new Category(esportsId, "Esports", "Competitive gaming"));
+        assertTrue("A new category never reuses the ID of an existing one",
+                !gamingId.equals(esportsId) && categories.getCategoryRepository().existsByName("Gaming"));
+
+        // A malformed data file stops loading instead of being overwritten later
+        freshStore("corrupt");
+        Path corruptEvents = Paths.get("test_data", "corrupt", "events.json");
+        Path corruptRegs = Paths.get("test_data", "corrupt", "registrations.json");
+        String regsBefore = readText(corruptRegs);
+        writeText(corruptEvents, readText(corruptEvents)
+                .replaceFirst("\"startDateTime\": \"[^\"]+\"", "\"startDateTime\": \"2026-13-45T99:00:00\""));
+        boolean refused = false;
+        try {
+            new DataStore(Paths.get("test_data", "corrupt").toString());
+        } catch (DataLoadException e) {
+            refused = e.getMessage().contains("events.json");
+        }
+        assertTrue("A malformed data file stops loading and names the file", refused);
+        assertTrue("A malformed data file leaves the other files untouched", regsBefore.equals(readText(corruptRegs)));
+
+        // Reports
+        ReportService.AdminDashboardData reportDash = new ReportService(freshStore("reports")).getAdminDashboard();
+        assertTrue("Attendance rate only counts completed events (2 of 3 checked in)",
+                reportDash.completedEventCheckIns == 2 && reportDash.completedEventRegistrations == 3
+                        && Math.abs(reportDash.overallAttendanceRate - 66.67) < 0.01);
+        assertTrue("Registration breakdown adds up to the total",
+                reportDash.confirmedRegistrations + reportDash.checkedInAttendees + reportDash.waitlistedRegistrations
+                        == reportDash.totalRegistrations);
+
+        // Accounts: sign-up, deactivation, login messages
+        DataStore accounts = freshStore("accounts");
+        AuthService accountAuth = new AuthService(accounts);
+        UserService accountUsers = new UserService(accounts);
+        User admin = userNamed(accounts, "admin");
+        AuthService.RegisterResult signUp = accountAuth.register("new_member", "pass123", "New Member", "member@test.com");
+        assertTrue("Sign-up always creates an Attendee account", signUp.success && signUp.user.isAttendee());
+        String axelId = userNamed(accounts, "axellerosh").getUserId();
+        UserService.OperationResult deactivated = accountUsers.deactivateUser(admin, axelId);
+        assertTrue("Deactivating an attendee cancels their upcoming registrations",
+                deactivated.success && !accounts.getRegistrationRepository().findByEventAndUser("EVT-1001", axelId).isPresent());
+        Registration emilyAfter = accounts.getRegistrationRepository()
+                .findByEventAndUser("EVT-1002", userNamed(accounts, "emily_watson").getUserId()).get();
+        assertTrue("Seats freed by a deactivation go to the waitlist", emilyAfter.isConfirmed());
+        AuthService.LoginResult wrongPassword = accountAuth.login("axellerosh", "wrong-password-1");
+        assertTrue("A wrong password does not reveal that an account is deactivated",
+                !wrongPassword.success && !wrongPassword.message.contains("deactivated"));
+        assertTrue("Reactivating an already active account is reported",
+                !accountUsers.reactivateUser(admin, userNamed(accounts, "john_doe").getUserId()).success);
+
+        // Reviews require a check-in
+        DataStore reviews = freshStore("reviews");
+        FeedbackService reviewService = new FeedbackService(reviews);
+        User jane = userNamed(reviews, "jane_smith");
+        assertTrue("An attendee who was never checked in cannot review",
+                !reviewService.submitFeedback(jane, "EVT-1006", 3, "I registered but did not attend").success);
+        new RegistrationService(reviews).checkInAttendee(userNamed(reviews, "courtney_org"), "EVT-1006", jane.getUserId());
+        assertTrue("The same attendee can review once checked in",
+                reviewService.submitFeedback(jane, "EVT-1006", 3, "Good session overall").success);
+
+        // Demo data matches the README demo
+        List<Registration> demoWaitlist = reviews.getRegistrationRepository().findWaitlistedByEvent("EVT-1002");
+        assertTrue("Demo data waitlists emily_watson on EVT-1002",
+                !demoWaitlist.isEmpty() && demoWaitlist.get(0).getUserId().equals(userNamed(reviews, "emily_watson").getUserId()));
+    }
+
+    private static DataStore freshStore(String name) {
+        File dir = new File("test_data", name);
+        cleanDirectory(dir);
+        return new DataStore(dir.getPath());
+    }
+
+    private static User userNamed(DataStore store, String username) {
+        return store.getUserRepository().findByUsername(username).get();
+    }
+
+    private static String readText(Path path) {
+        try {
+            return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static void writeText(Path path, String content) {
+        try {
+            Files.write(path, content.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     private static void cleanDirectory(File dir) {
         if (dir.exists()) {
             File[] files = dir.listFiles();
             if (files != null) {
                 for (File f : files) {
-                    f.delete();
+                    if (f.isDirectory()) {
+                        cleanDirectory(f);
+                    } else {
+                        f.delete();
+                    }
                 }
             }
             dir.delete();

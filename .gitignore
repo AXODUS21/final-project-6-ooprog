@@ -1,4 +1,5 @@
 bin/
+data/
 test_data/
 *.class
 .DS_Store

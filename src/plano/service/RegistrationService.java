@@ -2,16 +2,17 @@ package plano.service;
 
 import plano.model.*;
 import plano.repository.DataStore;
-import plano.util.ConsoleIO;
 import plano.util.InputValidator;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * Service managing registrations, capacity enforcement, FIFO waitlists,
- * automatic waitlist promotion upon cancellation, and attendee check-ins.
+ * automatic waitlist promotion, and attendee check-ins.
  */
 public class RegistrationService {
     private final DataStore dataStore;
@@ -60,24 +61,21 @@ public class RegistrationService {
         }
 
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             return new RegistrationResult(false, "Event not found with ID: " + eventId, null, null);
         }
 
         Event event = eventOpt.get();
+        LocalDateTime now = LocalDateTime.now();
         if (event.isCancelled()) {
             return new RegistrationResult(false, "Cannot register: This event has been cancelled by the organizer.", null, null);
         }
 
-        if (event.isCompleted()) {
+        if (event.isCompleted() || event.hasEnded(now)) {
             return new RegistrationResult(false, "Cannot register: This event has already concluded.", null, null);
         }
 
-        if (event.getEndDateTime() != null && event.getEndDateTime().isBefore(LocalDateTime.now())) {
-            return new RegistrationResult(false, "Cannot register: This event has already concluded.", null, null);
-        }
-
-        if (event.isOngoing() || (event.getStartDateTime() != null && event.getStartDateTime().isBefore(LocalDateTime.now()))) {
+        if (event.isOngoing() || event.hasStarted(now)) {
             return new RegistrationResult(false, "Cannot register: Registration is closed because the event has already started.", null, null);
         }
 
@@ -85,22 +83,11 @@ public class RegistrationService {
             return new RegistrationResult(false, "Organizers cannot register as attendees for their own events.", null, null);
         }
 
-        // Check for Attendee Schedule Conflict with other confirmed registrations
-        List<Registration> userRegs = dataStore.getRegistrationRepository().findByUser(user.getUserId());
-        for (Registration ur : userRegs) {
-            if (ur.isConfirmed() || ur.isCheckedIn()) {
-                Optional<Event> otherEventOpt = dataStore.getEventRepository().findById(ur.getEventId());
-                if (otherEventOpt.isPresent()) {
-                    Event other = otherEventOpt.get();
-                    if (!other.isCancelled() && !other.getEventId().equals(eventId) &&
-                            InputValidator.doIntervalsOverlap(event.getStartDateTime(), event.getEndDateTime(),
-                                    other.getStartDateTime(), other.getEndDateTime())) {
-                        return new RegistrationResult(false,
-                                "Schedule Conflict: You are already confirmed for '" + other.getTitle() +
-                                "' during an overlapping time window.", null, null);
-                    }
-                }
-            }
+        Event conflict = findScheduleConflict(user.getUserId(), event);
+        if (conflict != null) {
+            return new RegistrationResult(false,
+                    "Schedule Conflict: You are already confirmed for '" + conflict.getTitle() +
+                    "' during an overlapping time window.", null, null);
         }
 
         // Check duplicate registration
@@ -149,12 +136,12 @@ public class RegistrationService {
     }
 
     /**
-     * Cancels an existing registration and automatically promotes the next waitlisted
-     * user in FIFO order if a spot becomes available.
+     * Cancels an existing registration. If it held a seat, the seat is offered
+     * to the waitlist in FIFO order.
      */
     public synchronized CancellationResult cancelRegistration(User requestingUser, String registrationId) {
         Optional<Registration> regOpt = dataStore.getRegistrationRepository().findById(registrationId);
-        if (regOpt.isEmpty()) {
+        if (!regOpt.isPresent()) {
             return new CancellationResult(false, "Registration record not found.", null, null);
         }
 
@@ -175,44 +162,33 @@ public class RegistrationService {
             if (ev.isOngoing() || ev.isCompleted()) {
                 return new CancellationResult(false, "Cannot cancel registration: The event is already ongoing or completed.", null, null);
             }
-            if (ev.getStartDateTime() != null && ev.getStartDateTime().isBefore(LocalDateTime.now())) {
+            if (ev.hasStarted(LocalDateTime.now())) {
                 return new CancellationResult(false, "Cannot cancel registration: The event has already started.", null, null);
             }
         }
 
-        RegistrationStatus previousStatus = reg.getStatus();
-        reg.setStatus(RegistrationStatus.CANCELLED);
+        boolean freedSeat = reg.holdsSeat();
+        reg.cancel();
 
-        User promotedUser = null;
-        Registration promotedReg = null;
-
-        // Auto-promote from Waitlist if the cancelling user occupied a confirmed spot
-        if (previousStatus == RegistrationStatus.CONFIRMED || previousStatus == RegistrationStatus.CHECKED_IN) {
-            List<Registration> waitlist = dataStore.getRegistrationRepository().findWaitlistedByEvent(reg.getEventId());
-            if (!waitlist.isEmpty()) {
-                promotedReg = waitlist.get(0); // FIFO: first person on waitlist
-                promotedReg.setStatus(RegistrationStatus.CONFIRMED);
-                promotedUser = dataStore.getUserRepository().findById(promotedReg.getUserId()).orElse(null);
-            }
-        }
+        List<Registration> promoted = freedSeat && eventOpt.isPresent()
+                ? fillOpenSpots(eventOpt.get())
+                : Collections.<Registration>emptyList();
 
         dataStore.saveRegistrations();
 
-        String msg = "Registration cancelled successfully.";
-        if (promotedReg != null && promotedUser != null) {
-            msg += "\n[Waitlist Auto-Promotion]: " + promotedUser.getFullName() +
-                    " (" + promotedUser.getUsername() + ") has been automatically promoted from the waitlist to CONFIRMED status!";
-        }
-
-        return new CancellationResult(true, msg, promotedReg, promotedUser);
+        Registration firstPromoted = promoted.isEmpty() ? null : promoted.get(0);
+        User firstPromotedUser = firstPromoted == null ? null
+                : dataStore.getUserRepository().findById(firstPromoted.getUserId()).orElse(null);
+        String msg = "Registration cancelled successfully." + describePromotions(promoted);
+        return new CancellationResult(true, msg, firstPromoted, firstPromotedUser);
     }
 
     /**
-     * Checks in an attendee on event day.
+     * Checks in an attendee. Check-in opens on the event day.
      */
     public synchronized CheckInResult checkInAttendee(User requestingUser, String eventId, String attendeeUserId) {
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             return new CheckInResult(false, "Event not found.", null);
         }
 
@@ -227,33 +203,151 @@ public class RegistrationService {
             return new CheckInResult(false, "Cannot check in: Event has been cancelled.", null);
         }
 
+        LocalDateTime now = LocalDateTime.now();
+        if (!event.isCheckInOpen(now)) {
+            return new CheckInResult(false, "Check-in opens on the event day (" +
+                    event.getStartDateTime().toLocalDate() + ").", null);
+        }
+
         Optional<Registration> regOpt = dataStore.getRegistrationRepository().findByEventAndUser(eventId, attendeeUserId);
-        if (regOpt.isEmpty()) {
+        if (!regOpt.isPresent()) {
             return new CheckInResult(false, "No active registration found for this user on this event.", null);
         }
 
         Registration reg = regOpt.get();
-        if (reg.isCheckedIn()) {
-            return new CheckInResult(false, "Attendee is already checked in (Checked in at: " +
-                    reg.getCheckedInAt().format(ConsoleIO.DISPLAY_FORMATTER) + ").", reg);
+        try {
+            reg.checkIn(now);
+        } catch (IllegalStateException e) {
+            return new CheckInResult(false, e.getMessage(), reg);
         }
-
-        if (reg.isWaitlisted()) {
-            return new CheckInResult(false, "Cannot check in: Attendee is on the WAITLIST and does not have a confirmed spot.", reg);
-        }
-
-        if (reg.isCancelled()) {
-            return new CheckInResult(false, "Cannot check in: Attendee's registration is cancelled.", reg);
-        }
-
-        reg.setStatus(RegistrationStatus.CHECKED_IN);
-        reg.setCheckedInAt(LocalDateTime.now());
         dataStore.saveRegistrations();
 
         Optional<User> attendeeUser = dataStore.getUserRepository().findById(attendeeUserId);
         String attendeeName = attendeeUser.map(User::getFullName).orElse(attendeeUserId);
 
         return new CheckInResult(true, "Successfully checked in " + attendeeName + " for '" + event.getTitle() + "'!", reg);
+    }
+
+    // ==================== SHARED WAITLIST AND CANCELLATION RULES ====================
+
+    /**
+     * Fills open seats from the waitlist in FIFO order. A waitlisted attendee is skipped and stays
+     * waitlisted when the seat would clash with another event they are confirmed for, or when their
+     * account is deactivated. Nothing is promoted for events that are cancelled, completed or started.
+     * Does not save; the caller saves registrations.
+     */
+    List<Registration> fillOpenSpots(Event event) {
+        List<Registration> promoted = new ArrayList<>();
+        if (event.isCancelled() || event.isCompleted() || event.hasStarted(LocalDateTime.now())) {
+            return promoted;
+        }
+
+        int openSeats = event.getCapacity() - dataStore.getRegistrationRepository().countConfirmedByEvent(event.getEventId());
+        for (Registration waiting : dataStore.getRegistrationRepository().findWaitlistedByEvent(event.getEventId())) {
+            if (openSeats <= 0) {
+                break;
+            }
+            Optional<User> waitingUser = dataStore.getUserRepository().findById(waiting.getUserId());
+            if (!waitingUser.isPresent() || !waitingUser.get().isActive()) {
+                continue;
+            }
+            if (findScheduleConflict(waiting.getUserId(), event) != null) {
+                continue;
+            }
+            waiting.promote();
+            promoted.add(waiting);
+            openSeats--;
+        }
+        return promoted;
+    }
+
+    /** Builds the "[Waitlist Auto-Promotion]" lines shown after seats are filled. */
+    String describePromotions(List<Registration> promoted) {
+        StringBuilder sb = new StringBuilder();
+        for (Registration r : promoted) {
+            Optional<User> u = dataStore.getUserRepository().findById(r.getUserId());
+            String who = u.isPresent() ? u.get().getFullName() + " (" + u.get().getUsername() + ")" : r.getUserId();
+            sb.append("\n[Waitlist Auto-Promotion]: ").append(who)
+                    .append(" has been automatically promoted from the waitlist to CONFIRMED status!");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Cancels every confirmed and waitlisted registration of a cancelled event.
+     * Check-ins are kept as attendance history. Does not save; the caller saves registrations.
+     *
+     * @return how many registrations were cancelled
+     */
+    int cancelActiveRegistrationsForEvent(String eventId) {
+        int cancelled = 0;
+        for (Registration r : dataStore.getRegistrationRepository().findByEvent(eventId)) {
+            if (r.isConfirmed() || r.isWaitlisted()) {
+                r.cancel();
+                cancelled++;
+            }
+        }
+        return cancelled;
+    }
+
+    /**
+     * Cancels a user's confirmed and waitlisted registrations for events that have not started,
+     * then offers each freed seat to the waitlist. Used when an account is deactivated. Saves registrations.
+     */
+    ReleaseResult releaseUpcomingRegistrations(String userId) {
+        LocalDateTime now = LocalDateTime.now();
+        int released = 0;
+        List<Registration> promoted = new ArrayList<>();
+        for (Registration r : dataStore.getRegistrationRepository().findByUser(userId)) {
+            if (!(r.isConfirmed() || r.isWaitlisted())) {
+                continue;
+            }
+            Optional<Event> ev = dataStore.getEventRepository().findById(r.getEventId());
+            if (!ev.isPresent() || ev.get().isCancelled() || ev.get().isCompleted() || ev.get().hasStarted(now)) {
+                continue;
+            }
+            boolean freedSeat = r.holdsSeat();
+            r.cancel();
+            released++;
+            if (freedSeat) {
+                promoted.addAll(fillOpenSpots(ev.get()));
+            }
+        }
+        if (released > 0) {
+            dataStore.saveRegistrations();
+        }
+        return new ReleaseResult(released, promoted);
+    }
+
+    /** Returns another event the user holds a seat for that overlaps the given event, or null. */
+    private Event findScheduleConflict(String userId, Event event) {
+        for (Registration ur : dataStore.getRegistrationRepository().findByUser(userId)) {
+            if (!ur.holdsSeat()) {
+                continue;
+            }
+            Optional<Event> otherOpt = dataStore.getEventRepository().findById(ur.getEventId());
+            if (otherOpt.isPresent()) {
+                Event other = otherOpt.get();
+                if (!other.isCancelled() && !other.getEventId().equals(event.getEventId()) &&
+                        InputValidator.doIntervalsOverlap(event.getStartDateTime(), event.getEndDateTime(),
+                                other.getStartDateTime(), other.getEndDateTime())) {
+                    return other;
+                }
+            }
+        }
+        return null;
+    }
+
+    // ==================== RESULT CARRIERS ====================
+
+    static class ReleaseResult {
+        final int released;
+        final List<Registration> promoted;
+
+        ReleaseResult(int released, List<Registration> promoted) {
+            this.released = released;
+            this.promoted = promoted;
+        }
     }
 
     public static class RegistrationResult {

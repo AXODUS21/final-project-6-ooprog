@@ -52,17 +52,30 @@ public class AttendeeMenu {
 
             int choice = ConsoleIO.readInt("Select an option", 0, 6);
             switch (choice) {
-                case 1 -> browseEvents();
-                case 2 -> viewDetailsAndRegister();
-                case 3 -> manageMyRegistrations();
-                case 4 -> submitEventFeedback();
-                case 5 -> configureSortAndFilter();
-                case 6 -> manageProfile();
-                case 0 -> {
+                case 1:
+                    browseEvents();
+                    break;
+                case 2:
+                    viewDetailsAndRegister();
+                    break;
+                case 3:
+                    manageMyRegistrations();
+                    break;
+                case 4:
+                    submitEventFeedback();
+                    break;
+                case 5:
+                    configureSortAndFilter();
+                    break;
+                case 6:
+                    manageProfile();
+                    break;
+                case 0:
                     authService.logout();
                     ConsoleIO.printSuccess("Logged out successfully.");
                     return;
-                }
+                default:
+                    break;
             }
         }
     }
@@ -114,7 +127,7 @@ public class AttendeeMenu {
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1002)");
         if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
-        if (eventOpt.isEmpty()) {
+        if (!eventOpt.isPresent()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
             ConsoleIO.pause();
             return;
@@ -125,7 +138,7 @@ public class AttendeeMenu {
         int waitlisted = registrationService.getWaitlistCount(eventId);
         int spotsLeft = Math.max(0, ev.getCapacity() - confirmed);
 
-        System.out.println(ConsoleIO.BOLD + ConsoleIO.CYAN + "═".repeat(60) + ConsoleIO.RESET);
+        System.out.println(ConsoleIO.BOLD + ConsoleIO.CYAN + ConsoleIO.repeat("=", 60) + ConsoleIO.RESET);
         System.out.println(ConsoleIO.BOLD + ev.getTitle() + " (" + ev.getEventId() + ")" + ConsoleIO.RESET);
         System.out.println("Category:    " + ev.getCategory());
         System.out.println("Venue:       " + ev.getVenue());
@@ -137,7 +150,7 @@ public class AttendeeMenu {
         }
         System.out.println("Status:      " + ev.getStatus().getDisplayName());
         System.out.println("\nDescription:\n  " + ev.getDescription());
-        System.out.println(ConsoleIO.BOLD + ConsoleIO.CYAN + "═".repeat(60) + ConsoleIO.RESET);
+        System.out.println(ConsoleIO.BOLD + ConsoleIO.CYAN + ConsoleIO.repeat("=", 60) + ConsoleIO.RESET);
 
         User user = authService.getCurrentUser();
         Optional<Registration> userReg = dataStore.getRegistrationRepository().findByEventAndUser(eventId, user.getUserId());
@@ -205,12 +218,13 @@ public class AttendeeMenu {
         User user = authService.getCurrentUser();
         List<Registration> myRegs = registrationService.getRegistrationsForUser(user.getUserId());
 
-        boolean hasCompleted = false;
+        // Only completed events the attendee was checked in at can be reviewed
+        boolean hasReviewable = false;
         TableRenderer table = new TableRenderer("Event ID", "Title", "Venue", "My Status", "My Rating");
         for (Registration r : myRegs) {
             Optional<Event> evOpt = eventService.getEventById(r.getEventId());
-            if (evOpt.isPresent() && evOpt.get().isCompleted()) {
-                hasCompleted = true;
+            if (r.isCheckedIn() && evOpt.isPresent() && evOpt.get().isCompleted()) {
+                hasReviewable = true;
                 Event ev = evOpt.get();
                 Optional<Feedback> fb = feedbackService.getUserFeedbackForEvent(ev.getEventId(), user.getUserId());
                 String ratingStr = fb.map(f -> f.getStarsDisplay() + " (" + f.getRating() + "/5)").orElse("Not submitted");
@@ -218,8 +232,8 @@ public class AttendeeMenu {
             }
         }
 
-        if (!hasCompleted) {
-            System.out.println("You have no attended events that have been marked as completed yet.");
+        if (!hasReviewable) {
+            System.out.println("You have no completed events that you were checked in at. Only attendees who were checked in can leave a review.");
             ConsoleIO.pause();
             return;
         }
@@ -257,27 +271,27 @@ public class AttendeeMenu {
 
         int choice = ConsoleIO.readInt("Choose option", 0, 8);
         switch (choice) {
-            case 1 -> {
+            case 1:
                 currentSortStrategy = new SortByDateAscStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 2 -> {
+                break;
+            case 2:
                 currentSortStrategy = new SortByDateDescStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 3 -> {
+                break;
+            case 3:
                 currentSortStrategy = new SortByPopularityStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 4 -> {
+                break;
+            case 4:
                 currentSortStrategy = new SortByTitleStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 5 -> {
+                break;
+            case 5:
                 currentSortStrategy = new SortByCapacityStrategy();
                 ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-            }
-            case 6 -> {
+                break;
+            case 6:
                 String kw = ConsoleIO.readString("Search keyword (title/description, or leave blank)");
                 activeFilterCriteria.setTextQuery(kw);
                 String cat = ConsoleIO.readString("Category filter (or leave blank)");
@@ -285,15 +299,17 @@ public class AttendeeMenu {
                 String venue = ConsoleIO.readString("Venue filter (or leave blank)");
                 activeFilterCriteria.setVenue(venue);
                 ConsoleIO.printSuccess("Filters applied.");
-            }
-            case 7 -> {
+                break;
+            case 7:
                 activeFilterCriteria.setAvailableOnly(!activeFilterCriteria.isAvailableOnly());
                 ConsoleIO.printSuccess("Open spots only filter set to: " + activeFilterCriteria.isAvailableOnly());
-            }
-            case 8 -> {
+                break;
+            case 8:
                 activeFilterCriteria.reset();
                 ConsoleIO.printSuccess("All filters cleared.");
-            }
+                break;
+            default:
+                break;
         }
         ConsoleIO.pause();
     }

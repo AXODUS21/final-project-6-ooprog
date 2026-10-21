@@ -26,7 +26,7 @@ public class CompositeEventFilterStrategy implements EventFilterStrategy {
         List<Event> filtered = new ArrayList<>();
         for (Event ev : events) {
             // Text query match
-            if (criteria.getTextQuery() != null && !criteria.getTextQuery().isBlank()) {
+            if (criteria.getTextQuery() != null && !criteria.getTextQuery().trim().isEmpty()) {
                 String q = criteria.getTextQuery().toLowerCase();
                 boolean matchesTitle = ev.getTitle() != null && ev.getTitle().toLowerCase().contains(q);
                 boolean matchesDesc = ev.getDescription() != null && ev.getDescription().toLowerCase().contains(q);
@@ -37,14 +37,14 @@ public class CompositeEventFilterStrategy implements EventFilterStrategy {
             }
 
             // Category match
-            if (criteria.getCategory() != null && !criteria.getCategory().isBlank()) {
+            if (criteria.getCategory() != null && !criteria.getCategory().trim().isEmpty()) {
                 if (ev.getCategory() == null || !ev.getCategory().equalsIgnoreCase(criteria.getCategory())) {
                     continue;
                 }
             }
 
             // Venue match
-            if (criteria.getVenue() != null && !criteria.getVenue().isBlank()) {
+            if (criteria.getVenue() != null && !criteria.getVenue().trim().isEmpty()) {
                 if (ev.getVenue() == null || !ev.getVenue().toLowerCase().contains(criteria.getVenue().toLowerCase())) {
                     continue;
                 }

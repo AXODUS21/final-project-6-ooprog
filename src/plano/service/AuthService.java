@@ -40,24 +40,28 @@ public class AuthService {
         }
 
         Optional<User> userOpt = dataStore.getUserRepository().findByUsername(username.trim());
-        if (userOpt.isEmpty()) {
+        if (!userOpt.isPresent()) {
             return new LoginResult(false, "Invalid username or password.", null);
         }
 
+        // Check the password first, so a wrong guess never reveals whether the account is deactivated.
         User user = userOpt.get();
-        if (!user.isActive()) {
-            return new LoginResult(false, "Your account has been deactivated by an Administrator.", null);
-        }
-
         if (!user.getPassword().equals(password)) {
             return new LoginResult(false, "Invalid username or password.", null);
+        }
+
+        if (!user.isActive()) {
+            return new LoginResult(false, "Your account has been deactivated by an Administrator.", null);
         }
 
         this.currentUser = user;
         return new LoginResult(true, "Login successful. Welcome back, " + user.getFullName() + "!", user);
     }
 
-    public synchronized RegisterResult register(String username, String password, String fullName, String email, Role role) {
+    /**
+     * Public sign-up. Always creates an Attendee account; Organizers are promoted by an Administrator.
+     */
+    public synchronized RegisterResult register(String username, String password, String fullName, String email) {
         if (!InputValidator.isValidUsername(username)) {
             return new RegisterResult(false, "Username must be 3-30 characters long and contain only letters, numbers, underscores, dots, or hyphens.", null);
         }
@@ -82,7 +86,7 @@ public class AuthService {
         }
 
         String userId = dataStore.nextUserId();
-        User newUser = new User(userId, username.trim(), password, fullName.trim(), email.trim(), role != null ? role : Role.ATTENDEE);
+        User newUser = new User(userId, username.trim(), password, fullName.trim(), email.trim(), Role.ATTENDEE);
         dataStore.getUserRepository().add(newUser);
         dataStore.saveUsers();
 

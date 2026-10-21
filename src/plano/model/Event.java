@@ -2,13 +2,18 @@ package plano.model;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * Represents an event created by an Organizer or Admin.
+ * The event owns its status lifecycle: statuses only move forward
+ * (Upcoming -> Ongoing -> Completed, or to Cancelled) and must agree with the schedule.
  */
 public class Event {
+    private static final DateTimeFormatter MESSAGE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
     private String eventId;
     private String title;
     private String description;
@@ -35,11 +40,19 @@ public class Event {
         this.organizerId = organizerId;
         this.category = category;
         this.venue = venue;
-        this.startDateTime = startDateTime;
-        this.endDateTime = endDateTime;
+        this.startDateTime = toWholeMinute(startDateTime);
+        this.endDateTime = toWholeMinute(endDateTime);
         this.capacity = capacity;
         this.status = EventStatus.UPCOMING;
         this.createdAt = LocalDateTime.now();
+    }
+
+    /**
+     * Event times are kept to whole minutes, so an event that starts exactly
+     * when another one ends is never treated as overlapping it.
+     */
+    public static LocalDateTime toWholeMinute(LocalDateTime dateTime) {
+        return dateTime == null ? null : dateTime.truncatedTo(ChronoUnit.MINUTES);
     }
 
     public String getEventId() {
@@ -95,7 +108,7 @@ public class Event {
     }
 
     public void setStartDateTime(LocalDateTime startDateTime) {
-        this.startDateTime = startDateTime;
+        this.startDateTime = toWholeMinute(startDateTime);
     }
 
     public LocalDateTime getEndDateTime() {
@@ -103,7 +116,7 @@ public class Event {
     }
 
     public void setEndDateTime(LocalDateTime endDateTime) {
-        this.endDateTime = endDateTime;
+        this.endDateTime = toWholeMinute(endDateTime);
     }
 
     public int getCapacity() {
@@ -118,6 +131,10 @@ public class Event {
         return status;
     }
 
+    /**
+     * Restores a stored status (persistence and seed data only).
+     * Status changes during normal use go through {@link #cancel()} and {@link #changeStatus}.
+     */
     public void setStatus(EventStatus status) {
         this.status = status;
     }
@@ -144,6 +161,88 @@ public class Event {
 
     public boolean isOngoing() {
         return status == EventStatus.ONGOING;
+    }
+
+    public boolean hasStarted(LocalDateTime now) {
+        return startDateTime != null && !now.isBefore(startDateTime);
+    }
+
+    public boolean hasEnded(LocalDateTime now) {
+        return endDateTime != null && !now.isBefore(endDateTime);
+    }
+
+    /**
+     * True for an event that is neither cancelled nor completed but whose end time has passed,
+     * meaning its organizer still has to mark it Completed.
+     */
+    public boolean isAwaitingCompletion(LocalDateTime now) {
+        return (isUpcoming() || isOngoing()) && hasEnded(now);
+    }
+
+    /**
+     * Check-in opens on the day the event starts and stays open afterwards,
+     * so attendance can still be recorded once the event is over.
+     */
+    public boolean isCheckInOpen(LocalDateTime now) {
+        return !isCancelled() && startDateTime != null
+                && !now.toLocalDate().isBefore(startDateTime.toLocalDate());
+    }
+
+    /**
+     * Cancels the event.
+     *
+     * @throws IllegalStateException if the event is already cancelled or completed
+     */
+    public void cancel() {
+        if (isCancelled()) {
+            throw new IllegalStateException("This event is already cancelled.");
+        }
+        if (isCompleted()) {
+            throw new IllegalStateException("Completed events cannot be cancelled.");
+        }
+        status = EventStatus.CANCELLED;
+    }
+
+    /**
+     * Moves the event forward to a new status.
+     *
+     * @throws IllegalStateException with a user-facing reason if the change is not allowed
+     */
+    public void changeStatus(EventStatus target, LocalDateTime now) {
+        if (target == null) {
+            throw new IllegalArgumentException("A target status is required.");
+        }
+        if (target == EventStatus.CANCELLED) {
+            cancel();
+            return;
+        }
+        if (isCancelled()) {
+            throw new IllegalStateException("Cancelled events cannot be modified or reactivated.");
+        }
+        if (isCompleted()) {
+            throw new IllegalStateException("Completed events cannot be reopened or changed.");
+        }
+        if (target == status) {
+            throw new IllegalStateException("This event is already " + status.getDisplayName() + ".");
+        }
+        if (target == EventStatus.UPCOMING) {
+            throw new IllegalStateException("An event cannot move back to Upcoming once it is Ongoing.");
+        }
+        if (target == EventStatus.ONGOING) {
+            if (now.toLocalDate().isBefore(startDateTime.toLocalDate())) {
+                throw new IllegalStateException("An event can only be marked Ongoing on its start date ("
+                        + startDateTime.toLocalDate() + ") or later.");
+            }
+            if (hasEnded(now)) {
+                throw new IllegalStateException("This event already ended at "
+                        + endDateTime.format(MESSAGE_FORMAT) + ". Mark it Completed instead.");
+            }
+        }
+        if (target == EventStatus.COMPLETED && !hasStarted(now)) {
+            throw new IllegalStateException("Cannot mark event as Completed before its scheduled start time ("
+                    + startDateTime.format(MESSAGE_FORMAT) + ").");
+        }
+        status = target;
     }
 
     public Map<String, Object> toMap() {
@@ -173,12 +272,12 @@ public class Event {
         ev.setVenue((String) map.get("venue"));
 
         String sdt = (String) map.get("startDateTime");
-        if (sdt != null && !sdt.isBlank()) {
+        if (sdt != null && !sdt.trim().isEmpty()) {
             ev.setStartDateTime(LocalDateTime.parse(sdt, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         }
 
         String edt = (String) map.get("endDateTime");
-        if (edt != null && !edt.isBlank()) {
+        if (edt != null && !edt.trim().isEmpty()) {
             ev.setEndDateTime(LocalDateTime.parse(edt, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         }
 
@@ -192,7 +291,7 @@ public class Event {
         ev.setStatus(EventStatus.fromString((String) map.get("status")));
 
         String ca = (String) map.get("createdAt");
-        if (ca != null && !ca.isBlank()) {
+        if (ca != null && !ca.trim().isEmpty()) {
             ev.setCreatedAt(LocalDateTime.parse(ca, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         }
         return ev;
