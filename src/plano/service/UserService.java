@@ -26,10 +26,6 @@ public class UserService {
         return dataStore.getUserRepository().findAll();
     }
 
-    public Optional<User> getUserById(String userId) {
-        return dataStore.getUserRepository().findById(userId);
-    }
-
     /**
      * Deactivates an account. Organizers with events that have not ended yet cannot be deactivated.
      * The user's registrations for events that have not started are cancelled and their seats
@@ -67,7 +63,7 @@ public class UserService {
             }
         }
 
-        target.setActive(false);
+        target.deactivate();
         dataStore.saveUsers();
 
         RegistrationService.ReleaseResult released = registrationService.releaseUpcomingRegistrations(targetUserId);
@@ -93,7 +89,7 @@ public class UserService {
         if (target.isActive()) {
             return new OperationResult(false, "User '" + target.getUsername() + "' is already active.");
         }
-        target.setActive(true);
+        target.reactivate();
         dataStore.saveUsers();
         return new OperationResult(true, "User '" + target.getUsername() + "' has been reactivated.");
     }
@@ -116,7 +112,7 @@ public class UserService {
             return new OperationResult(false, "User is already an Administrator.");
         }
 
-        target.setRole(Role.ORGANIZER);
+        target.promoteToOrganizer();
         dataStore.saveUsers();
         return new OperationResult(true, "User '" + target.getUsername() + "' has been promoted to Event Organizer.");
     }
@@ -162,13 +158,13 @@ public class UserService {
         }
 
         if (newName != null) {
-            user.setFullName(newName);
+            user.changeFullName(newName);
         }
         if (newEmail != null) {
-            user.setEmail(newEmail);
+            user.changeEmail(newEmail);
         }
         if (password != null) {
-            user.setPassword(password);
+            user.changePassword(password);
         }
 
         dataStore.saveUsers();

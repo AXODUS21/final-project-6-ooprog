@@ -1,10 +1,8 @@
 package plano.repository;
 
-import plano.model.Role;
 import plano.model.User;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * In-memory repository for user accounts.
@@ -38,12 +36,6 @@ public class UserRepository {
 
     public List<User> findAll() {
         return new ArrayList<>(users.values());
-    }
-
-    public List<User> findByRole(Role role) {
-        return users.values().stream()
-                .filter(u -> u.getRole() == role)
-                .collect(Collectors.toList());
     }
 
     public boolean existsByUsername(String username) {

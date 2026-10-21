@@ -8,32 +8,37 @@ import java.util.Map;
 
 /**
  * Represents an event created by an Organizer or Admin.
- * The event owns its status lifecycle: statuses only move forward
- * (Upcoming -> Ongoing -> Completed, or to Cancelled) and must agree with the schedule.
+ * The ID, organizer and creation time never change. The event owns its status lifecycle:
+ * statuses only move forward (Upcoming -> Ongoing -> Completed, or to Cancelled)
+ * and must agree with the schedule.
  */
 public class Event {
     private static final DateTimeFormatter MESSAGE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    private String eventId;
+    private final String eventId;
     private String title;
     private String description;
-    private String organizerId;
+    private final String organizerId;
     private String category;
     private String venue;
     private LocalDateTime startDateTime;
     private LocalDateTime endDateTime;
     private int capacity;
     private EventStatus status;
-    private LocalDateTime createdAt;
+    private final LocalDateTime createdAt;
 
-    public Event() {
-        this.status = EventStatus.UPCOMING;
-        this.createdAt = LocalDateTime.now();
-    }
-
+    /** Creates a new, upcoming event. */
     public Event(String eventId, String title, String description, String organizerId,
                  String category, String venue, LocalDateTime startDateTime,
                  LocalDateTime endDateTime, int capacity) {
+        this(eventId, title, description, organizerId, category, venue, startDateTime, endDateTime,
+                capacity, EventStatus.UPCOMING, LocalDateTime.now());
+    }
+
+    /** Restores an event exactly as it was saved. */
+    private Event(String eventId, String title, String description, String organizerId,
+                  String category, String venue, LocalDateTime startDateTime, LocalDateTime endDateTime,
+                  int capacity, EventStatus status, LocalDateTime createdAt) {
         this.eventId = eventId;
         this.title = title;
         this.description = description;
@@ -43,8 +48,8 @@ public class Event {
         this.startDateTime = toWholeMinute(startDateTime);
         this.endDateTime = toWholeMinute(endDateTime);
         this.capacity = capacity;
-        this.status = EventStatus.UPCOMING;
-        this.createdAt = LocalDateTime.now();
+        this.status = status;
+        this.createdAt = createdAt;
     }
 
     /**
@@ -59,92 +64,44 @@ public class Event {
         return eventId;
     }
 
-    public void setEventId(String eventId) {
-        this.eventId = eventId;
-    }
-
     public String getTitle() {
         return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
     }
 
     public String getDescription() {
         return description;
     }
 
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
     public String getOrganizerId() {
         return organizerId;
-    }
-
-    public void setOrganizerId(String organizerId) {
-        this.organizerId = organizerId;
     }
 
     public String getCategory() {
         return category;
     }
 
-    public void setCategory(String category) {
-        this.category = category;
-    }
-
     public String getVenue() {
         return venue;
-    }
-
-    public void setVenue(String venue) {
-        this.venue = venue;
     }
 
     public LocalDateTime getStartDateTime() {
         return startDateTime;
     }
 
-    public void setStartDateTime(LocalDateTime startDateTime) {
-        this.startDateTime = toWholeMinute(startDateTime);
-    }
-
     public LocalDateTime getEndDateTime() {
         return endDateTime;
-    }
-
-    public void setEndDateTime(LocalDateTime endDateTime) {
-        this.endDateTime = toWholeMinute(endDateTime);
     }
 
     public int getCapacity() {
         return capacity;
     }
 
-    public void setCapacity(int capacity) {
-        this.capacity = capacity;
-    }
-
     public EventStatus getStatus() {
         return status;
     }
 
-    /**
-     * Restores a stored status (persistence and seed data only).
-     * Status changes during normal use go through {@link #cancel()} and {@link #changeStatus}.
-     */
-    public void setStatus(EventStatus status) {
-        this.status = status;
-    }
-
     public LocalDateTime getCreatedAt() {
         return createdAt;
-    }
-
-    public void setCreatedAt(LocalDateTime createdAt) {
-        this.createdAt = createdAt;
     }
 
     public boolean isCancelled() {
@@ -186,6 +143,23 @@ public class Event {
     public boolean isCheckInOpen(LocalDateTime now) {
         return !isCancelled() && startDateTime != null
                 && !now.toLocalDate().isBefore(startDateTime.toLocalDate());
+    }
+
+    // ==================== BEHAVIOR ====================
+
+    /**
+     * Replaces all editable details in one step. Callers validate the new values
+     * first (see EventService), so an event is never left half-edited.
+     */
+    public void updateDetails(String title, String description, String category, String venue,
+                              LocalDateTime startDateTime, LocalDateTime endDateTime, int capacity) {
+        this.title = title;
+        this.description = description;
+        this.category = category;
+        this.venue = venue;
+        this.startDateTime = toWholeMinute(startDateTime);
+        this.endDateTime = toWholeMinute(endDateTime);
+        this.capacity = capacity;
     }
 
     /**
@@ -245,6 +219,8 @@ public class Event {
         status = target;
     }
 
+    // ==================== PERSISTENCE ====================
+
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("eventId", eventId);
@@ -263,37 +239,34 @@ public class Event {
 
     public static Event fromMap(Map<String, Object> map) {
         if (map == null) return null;
-        Event ev = new Event();
-        ev.setEventId((String) map.get("eventId"));
-        ev.setTitle((String) map.get("title"));
-        ev.setDescription((String) map.get("description"));
-        ev.setOrganizerId((String) map.get("organizerId"));
-        ev.setCategory((String) map.get("category"));
-        ev.setVenue((String) map.get("venue"));
 
-        String sdt = (String) map.get("startDateTime");
-        if (sdt != null && !sdt.trim().isEmpty()) {
-            ev.setStartDateTime(LocalDateTime.parse(sdt, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        }
-
-        String edt = (String) map.get("endDateTime");
-        if (edt != null && !edt.trim().isEmpty()) {
-            ev.setEndDateTime(LocalDateTime.parse(edt, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        }
-
+        int capacity = 0;
         Object capObj = map.get("capacity");
         if (capObj instanceof Number) {
-            ev.setCapacity(((Number) capObj).intValue());
+            capacity = ((Number) capObj).intValue();
         } else if (capObj != null) {
-            ev.setCapacity(Integer.parseInt(capObj.toString()));
+            capacity = Integer.parseInt(capObj.toString());
         }
 
-        ev.setStatus(EventStatus.fromString((String) map.get("status")));
+        LocalDateTime createdAt = parseDateTime((String) map.get("createdAt"));
+        return new Event(
+                (String) map.get("eventId"),
+                (String) map.get("title"),
+                (String) map.get("description"),
+                (String) map.get("organizerId"),
+                (String) map.get("category"),
+                (String) map.get("venue"),
+                parseDateTime((String) map.get("startDateTime")),
+                parseDateTime((String) map.get("endDateTime")),
+                capacity,
+                EventStatus.fromString((String) map.get("status")),
+                createdAt != null ? createdAt : LocalDateTime.now());
+    }
 
-        String ca = (String) map.get("createdAt");
-        if (ca != null && !ca.trim().isEmpty()) {
-            ev.setCreatedAt(LocalDateTime.parse(ca, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+    private static LocalDateTime parseDateTime(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return null;
         }
-        return ev;
+        return LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 }

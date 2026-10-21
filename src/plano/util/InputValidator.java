@@ -88,10 +88,6 @@ public class InputValidator {
         return capacity >= 1 && capacity <= 50000;
     }
 
-    public static boolean isValidRating(int rating) {
-        return rating >= 1 && rating <= 5;
-    }
-
     public static boolean isValidEventId(String id) {
         return id != null && EVENT_ID_PATTERN.matcher(id.trim()).matches();
     }
@@ -136,10 +132,6 @@ public class InputValidator {
 
     public static boolean isNotEmpty(String str) {
         return str != null && !str.trim().isEmpty();
-    }
-
-    public static boolean isPositive(int number) {
-        return number > 0;
     }
 
     public static boolean isFuture(LocalDateTime dateTime) {

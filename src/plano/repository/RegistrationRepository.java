@@ -49,13 +49,6 @@ public class RegistrationRepository {
                 .findFirst();
     }
 
-    public Optional<Registration> findAnyByEventAndUser(String eventId, String userId) {
-        if (eventId == null || userId == null) return Optional.empty();
-        return registrations.values().stream()
-                .filter(r -> eventId.equals(r.getEventId()) && userId.equals(r.getUserId()))
-                .findFirst();
-    }
-
     public List<Registration> findConfirmedByEvent(String eventId) {
         return findByEvent(eventId).stream()
                 .filter(r -> r.getStatus() == RegistrationStatus.CONFIRMED || r.getStatus() == RegistrationStatus.CHECKED_IN)
@@ -66,12 +59,6 @@ public class RegistrationRepository {
         return findByEvent(eventId).stream()
                 .filter(r -> r.getStatus() == RegistrationStatus.WAITLISTED)
                 .sorted(Comparator.comparing(Registration::getRegisteredAt))
-                .collect(Collectors.toList());
-    }
-
-    public List<Registration> findCheckedInByEvent(String eventId) {
-        return findByEvent(eventId).stream()
-                .filter(r -> r.getStatus() == RegistrationStatus.CHECKED_IN)
                 .collect(Collectors.toList());
     }
 

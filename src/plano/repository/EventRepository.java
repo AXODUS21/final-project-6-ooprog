@@ -1,7 +1,6 @@
 package plano.repository;
 
 import plano.model.Event;
-import plano.model.EventStatus;
 import plano.util.InputValidator;
 
 import java.time.LocalDateTime;
@@ -32,19 +31,6 @@ public class EventRepository {
         if (organizerId == null) return Collections.emptyList();
         return events.values().stream()
                 .filter(e -> organizerId.equals(e.getOrganizerId()))
-                .collect(Collectors.toList());
-    }
-
-    public List<Event> findByCategory(String category) {
-        if (category == null) return Collections.emptyList();
-        return events.values().stream()
-                .filter(e -> category.equalsIgnoreCase(e.getCategory()))
-                .collect(Collectors.toList());
-    }
-
-    public List<Event> findByStatus(EventStatus status) {
-        return events.values().stream()
-                .filter(e -> e.getStatus() == status)
                 .collect(Collectors.toList());
     }
 

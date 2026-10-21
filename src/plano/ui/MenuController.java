@@ -1,15 +1,19 @@
 package plano.ui;
 
 import plano.model.Event;
+import plano.model.Role;
 import plano.model.User;
 import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.EventSortStrategy;
 import plano.strategy.SortByDateAscStrategy;
 import plano.util.ConsoleIO;
+import plano.util.OperationCancelledException;
 import plano.util.TableRenderer;
 
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Top-level application controller managing the landing screen,
@@ -18,28 +22,27 @@ import java.util.List;
 public class MenuController {
     private final DataStore dataStore;
     private final AuthService authService;
-    private final UserService userService;
     private final EventService eventService;
     private final RegistrationService registrationService;
-    private final FeedbackService feedbackService;
-    private final ReportService reportService;
 
-    private final AdminMenu adminMenu;
-    private final OrganizerMenu organizerMenu;
-    private final AttendeeMenu attendeeMenu;
+    /** One menu per role; logging in opens the menu for the user's role. */
+    private final Map<Role, RoleMenu> menusByRole = new EnumMap<>(Role.class);
 
     public MenuController(DataStore dataStore) {
         this.dataStore = dataStore;
         this.authService = new AuthService(dataStore);
-        this.userService = new UserService(dataStore);
         this.eventService = new EventService(dataStore);
         this.registrationService = new RegistrationService(dataStore);
-        this.feedbackService = new FeedbackService(dataStore);
-        this.reportService = new ReportService(dataStore);
+        UserService userService = new UserService(dataStore);
+        FeedbackService feedbackService = new FeedbackService(dataStore);
+        ReportService reportService = new ReportService(dataStore);
 
-        this.adminMenu = new AdminMenu(dataStore, authService, userService, eventService, registrationService, feedbackService, reportService);
-        this.organizerMenu = new OrganizerMenu(dataStore, authService, eventService, registrationService, feedbackService, reportService);
-        this.attendeeMenu = new AttendeeMenu(dataStore, authService, userService, eventService, registrationService, feedbackService);
+        menusByRole.put(Role.ADMIN, new AdminMenu(dataStore, authService, userService, eventService,
+                registrationService, feedbackService, reportService));
+        menusByRole.put(Role.ORGANIZER, new OrganizerMenu(dataStore, authService, eventService,
+                registrationService, feedbackService, reportService));
+        menusByRole.put(Role.ATTENDEE, new AttendeeMenu(dataStore, authService, userService, eventService,
+                registrationService, feedbackService));
     }
 
     public void start() {
@@ -58,26 +61,31 @@ public class MenuController {
             System.out.println();
 
             int choice = ConsoleIO.readInt("Select an option", 0, 4);
-            switch (choice) {
-                case 1:
-                    handleLogin();
-                    break;
-                case 2:
-                    handleRegister();
-                    break;
-                case 3:
-                    browsePublicEvents();
-                    break;
-                case 4:
-                    displayDemoCredentials();
-                    break;
-                case 0:
-                    ConsoleIO.printSuccess("Thank you for using PlanO. Goodbye!");
-                    dataStore.saveAll();
-                    running = false;
-                    break;
-                default:
-                    break;
+            try {
+                switch (choice) {
+                    case 1:
+                        handleLogin();
+                        break;
+                    case 2:
+                        handleRegister();
+                        break;
+                    case 3:
+                        browsePublicEvents();
+                        break;
+                    case 4:
+                        displayDemoCredentials();
+                        break;
+                    case 0:
+                        ConsoleIO.printSuccess("Thank you for using PlanO. Goodbye!");
+                        dataStore.saveAll();
+                        running = false;
+                        break;
+                    default:
+                        break;
+                }
+            } catch (OperationCancelledException cancelled) {
+                ConsoleIO.printWarning("Operation cancelled. Returning to the main menu.");
+                ConsoleIO.pause();
             }
         }
     }
@@ -90,10 +98,8 @@ public class MenuController {
             return;
         }
 
-        String username = ConsoleIO.readNonEmptyString("Username (or '0' to return)");
-        if (ConsoleIO.isCancelToken(username)) return;
-        String password = ConsoleIO.readNonEmptyString("Password (or 'cancel' to return)");
-        if (ConsoleIO.isCancelToken(password)) return;
+        String username = ConsoleIO.readCancellableString("Username (or '0' to return)");
+        String password = ConsoleIO.readCancellableString("Password (or 'cancel' to return)");
 
         AuthService.LoginResult res = authService.login(username, password);
         if (res.success) {
@@ -106,38 +112,18 @@ public class MenuController {
         }
     }
 
+    /** Opens the menu for the user's role. Each menu is a RoleMenu, so this works for every role. */
     private void routeUser(User user) {
-        if (user.isAdmin()) {
-            adminMenu.display();
-        } else if (user.isOrganizer()) {
-            organizerMenu.display();
-        } else {
-            attendeeMenu.display();
-        }
+        menusByRole.get(user.getRole()).display();
     }
 
     private void handleRegister() {
         ConsoleIO.printSection("Create New PlanO Account");
         String username = ConsoleIO.readUsername("Choose Username");
-        if (username == null) {
-            ConsoleIO.printWarning("Registration cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
         String password = ConsoleIO.readPassword("Choose Password (6 - 64 chars, letters & digits)");
-        if (password == null) {
-            ConsoleIO.printWarning("Registration cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
 
         while (true) {
-            String confirmPassword = ConsoleIO.readNonEmptyString("Confirm Password (or 'cancel' to abort)");
-            if (ConsoleIO.isCancelToken(confirmPassword)) {
-                ConsoleIO.printWarning("Registration cancelled.");
-                ConsoleIO.pause();
-                return;
-            }
+            String confirmPassword = ConsoleIO.readCancellableString("Confirm Password (or 'cancel' to abort)");
             if (password.equals(confirmPassword)) {
                 break;
             }
@@ -145,17 +131,7 @@ public class MenuController {
         }
 
         String fullName = ConsoleIO.readFullName("Your Full Name");
-        if (fullName == null) {
-            ConsoleIO.printWarning("Registration cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
         String email = ConsoleIO.readEmail("Your Email Address");
-        if (email == null) {
-            ConsoleIO.printWarning("Registration cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
 
         AuthService.RegisterResult res = authService.register(username, password, fullName, email);
         if (res.success) {

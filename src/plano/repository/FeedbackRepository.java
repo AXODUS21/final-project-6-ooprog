@@ -33,13 +33,6 @@ public class FeedbackRepository {
                 .collect(Collectors.toList());
     }
 
-    public List<Feedback> findByUser(String userId) {
-        if (userId == null) return Collections.emptyList();
-        return feedbacks.values().stream()
-                .filter(fb -> userId.equals(fb.getUserId()))
-                .collect(Collectors.toList());
-    }
-
     public Optional<Feedback> findByEventAndUser(String eventId, String userId) {
         if (eventId == null || userId == null) return Optional.empty();
         return feedbacks.values().stream()

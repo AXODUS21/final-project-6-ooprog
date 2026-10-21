@@ -3,149 +3,86 @@ package plano.ui;
 import plano.model.*;
 import plano.repository.DataStore;
 import plano.service.*;
-import plano.strategy.*;
 import plano.util.ConsoleIO;
 import plano.util.TableRenderer;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * Terminal interface for Event Organizers.
- * Allows managing own events, attendee check-ins, performance analytics,
- * and conflict-free scheduling.
+ * Allows managing their own events, attendee check-ins, performance analytics,
+ * and conflict-free scheduling. Organizers may only manage the events they created.
  */
-
-public class OrganizerMenu {
-    private final DataStore dataStore;
-    private final AuthService authService;
-    private final EventService eventService;
-    private final RegistrationService registrationService;
-    private final FeedbackService feedbackService;
+public class OrganizerMenu extends EventManagerMenu {
     private final ReportService reportService;
-
-    private EventSortStrategy currentSortStrategy = new SortByDateAscStrategy();
 
     public OrganizerMenu(DataStore dataStore, AuthService authService, EventService eventService,
                          RegistrationService registrationService, FeedbackService feedbackService,
                          ReportService reportService) {
-        this.dataStore = dataStore;
-        this.authService = authService;
-        this.eventService = eventService;
-        this.registrationService = registrationService;
-        this.feedbackService = feedbackService;
+        super(dataStore, authService, eventService, registrationService, feedbackService);
         this.reportService = reportService;
     }
 
-    public void display() {
-        User organizer = authService.getCurrentUser();
-        while (authService.isLoggedIn() && (organizer.isOrganizer() || organizer.isAdmin())) {
-            ConsoleIO.printBanner("PlanO - Organizer Dashboard", "Logged in as: " + organizer.getFullName() + " (" + organizer.getUsername() + ")");
-            System.out.println(" 1. Create New Event (with Conflict Detection)");
-            System.out.println(" 2. View & Manage My Events (Edit, Status, Cancel)");
-            System.out.println(" 3. Event Attendee Lists & Check-Ins");
-            System.out.println(" 4. View Post-Event Feedback & Ratings");
-            System.out.println(" 5. My Organizer Performance Analytics");
-            System.out.println(" 6. Browse All Public Events");
-            System.out.println(" 0. Logout");
-            System.out.println();
+    @Override
+    protected String getPortalTitle() {
+        return "PlanO - Organizer Dashboard";
+    }
 
-            int choice = ConsoleIO.readInt("Select an option", 0, 6);
-            switch (choice) {
-                case 1:
-                    createEvent();
-                    break;
-                case 2:
-                    manageMyEvents();
-                    break;
-                case 3:
-                    manageCheckIns();
-                    break;
-                case 4:
-                    viewMyEventFeedback();
-                    break;
-                case 5:
-                    viewAnalytics();
-                    break;
-                case 6:
-                    browseAllEvents();
-                    break;
-                case 0:
-                    authService.logout();
-                    ConsoleIO.printSuccess("Logged out successfully.");
-                    return;
-                default:
-                    break;
-            }
+    @Override
+    protected void printMenuOptions() {
+        System.out.println(" 1. Create New Event (with Conflict Detection)");
+        System.out.println(" 2. View & Manage My Events (Edit, Status, Cancel)");
+        System.out.println(" 3. Event Attendee Lists & Check-Ins");
+        System.out.println(" 4. View Post-Event Feedback & Ratings");
+        System.out.println(" 5. My Organizer Performance Analytics");
+        System.out.println(" 6. Browse All Public Events");
+    }
+
+    @Override
+    protected int getOptionCount() {
+        return 6;
+    }
+
+    @Override
+    protected void handleOption(int choice) {
+        switch (choice) {
+            case 1:
+                createEvent("Create New Event");
+                break;
+            case 2:
+                manageMyEvents();
+                break;
+            case 3:
+                manageCheckIns();
+                break;
+            case 4:
+                viewMyEventFeedback();
+                break;
+            case 5:
+                viewAnalytics();
+                break;
+            case 6:
+                browseEvents("All Events Across System", null);
+                break;
+            default:
+                break;
         }
     }
 
-    private void createEvent() {
-        ConsoleIO.printSection("Create New Event");
-        String title = ConsoleIO.readCancellableEventTitle("Event Title");
-        if (title == null) {
-            ConsoleIO.printWarning("Event creation cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
-        String description = ConsoleIO.readDescription("Description", 1000);
+    /** Organizers may only manage events they created. */
+    @Override
+    protected boolean canManage(Event event) {
+        return event.getOrganizerId().equals(authService.getCurrentUser().getUserId());
+    }
 
-        List<Category> categories = dataStore.getCategoryRepository().findAll();
-        System.out.println(ConsoleIO.CYAN + "Available Categories:" + ConsoleIO.RESET);
-        for (int i = 0; i < categories.size(); i++) {
-            System.out.println("  " + (i + 1) + ". " + categories.get(i).getName());
-        }
-        System.out.println("  0. Cancel");
-        int catIdx = ConsoleIO.readInt("Choose Category", 0, categories.size());
-        if (catIdx == 0) {
-            ConsoleIO.printWarning("Event creation cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
-        String category = categories.get(catIdx - 1).getName();
-
-        String venue = ConsoleIO.readVenue("Venue / Room");
-        if (venue == null) {
-            ConsoleIO.printWarning("Event creation cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
-        LocalDateTime start = ConsoleIO.readDateTime("Start Date & Time", true);
-        if (start == null) {
-            ConsoleIO.printWarning("Event creation cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
-        LocalDateTime end = ConsoleIO.readDateTimeAfter("End Date & Time", start);
-        if (end == null) {
-            ConsoleIO.printWarning("Event creation cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
-        Integer capacity = ConsoleIO.readCancellablePositiveInt("Attendee Capacity Limit");
-        if (capacity == null) {
-            ConsoleIO.printWarning("Event creation cancelled.");
-            ConsoleIO.pause();
-            return;
-        }
-
-        EventService.EventResult res = eventService.createEvent(
-                authService.getCurrentUser(), title, description, category, venue, start, end, capacity
-        );
-
-        if (res.success) {
-            ConsoleIO.printSuccess(res.message);
-        } else {
-            ConsoleIO.printError(res.message);
-        }
-        ConsoleIO.pause();
+    private List<Event> myEvents() {
+        return eventService.getEventsByOrganizer(authService.getCurrentUser().getUserId());
     }
 
     private void manageMyEvents() {
         ConsoleIO.printSection("My Organized Events");
-        User user = authService.getCurrentUser();
-        List<Event> myEvents = eventService.getEventsByOrganizer(user.getUserId());
+        List<Event> myEvents = myEvents();
 
         if (myEvents.isEmpty()) {
             System.out.println("You haven't created any events yet.");
@@ -161,50 +98,20 @@ public class OrganizerMenu {
         System.out.println("0. Return");
 
         int ch = ConsoleIO.readInt("Select", 0, 3);
-        if (ch == 1) {
-            String eventId = ConsoleIO.readEventId("Enter Event ID to edit");
-            if (eventId == null) return;
-            Optional<Event> evOpt = eventService.getEventById(eventId);
-            if (evOpt.isPresent() && evOpt.get().getOrganizerId().equals(user.getUserId())) {
-                Event ev = evOpt.get();
-                if (ev.isCancelled()) {
-                    ConsoleIO.printError("Cannot edit a cancelled event.");
-                    ConsoleIO.pause();
-                    return;
-                }
-                String title = ConsoleIO.readOptionalString("New Title", ev.getTitle());
-                String desc = ConsoleIO.readOptionalString("New Description", ev.getDescription());
-                String venue = ConsoleIO.readOptionalString("New Venue", ev.getVenue());
-                LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", ev.getStartDateTime(), ev.isUpcoming());
-                LocalDateTime end = ConsoleIO.readOptionalDateTimeAfter("New End Time", ev.getEndDateTime(), start);
-                int cap = ConsoleIO.readOptionalPositiveInt("New Capacity", ev.getCapacity());
-
-                EventService.EventResult res = eventService.updateEvent(user, eventId, title, desc, ev.getCategory(),
-                        venue, start, end, cap);
-                if (res.success) ConsoleIO.printSuccess(res.message);
-                else ConsoleIO.printError(res.message);
-            } else {
+        if (ch != 0) {
+            String prompt = ch == 1 ? "Enter Event ID to edit"
+                    : ch == 2 ? "Enter Event ID to change status"
+                    : "Enter Event ID to cancel";
+            String eventId = ConsoleIO.readEventId(prompt);
+            Optional<Event> evOpt = findManageableEvent(eventId);
+            if (!evOpt.isPresent()) {
                 ConsoleIO.printError("Event not found or you are not the organizer.");
-            }
-        } else if (ch == 2) {
-            String eventId = ConsoleIO.readEventId("Enter Event ID to change status");
-            if (eventId == null) return;
-            System.out.println("Statuses only move forward: Upcoming -> Ongoing -> Completed.");
-            System.out.println("1. ONGOING | 2. COMPLETED | 0. Back");
-            int statOpt = ConsoleIO.readInt("Select Status", 0, 2);
-            if (statOpt != 0) {
-                EventStatus st = statOpt == 1 ? EventStatus.ONGOING : EventStatus.COMPLETED;
-                EventService.EventResult res = eventService.updateEventStatus(user, eventId, st);
-                if (res.success) ConsoleIO.printSuccess(res.message);
-                else ConsoleIO.printError(res.message);
-            }
-        } else if (ch == 3) {
-            String eventId = ConsoleIO.readEventId("Enter Event ID to cancel");
-            if (eventId == null) return;
-            if (ConsoleIO.readConfirmation("Are you sure you want to cancel this event?")) {
-                EventService.EventResult res = eventService.cancelEvent(user, eventId);
-                if (res.success) ConsoleIO.printSuccess(res.message);
-                else ConsoleIO.printError(res.message);
+            } else if (ch == 1) {
+                editEventDetails(evOpt.get());
+            } else if (ch == 2) {
+                advanceEventStatus(evOpt.get());
+            } else {
+                cancelEventAfterConfirmation(evOpt.get());
             }
         }
         ConsoleIO.pause();
@@ -212,8 +119,7 @@ public class OrganizerMenu {
 
     private void manageCheckIns() {
         ConsoleIO.printSection("My Event Attendee Check-Ins");
-        User user = authService.getCurrentUser();
-        List<Event> myEvents = eventService.getEventsByOrganizer(user.getUserId());
+        List<Event> myEvents = myEvents();
 
         if (myEvents.isEmpty()) {
             System.out.println("No events found under your account.");
@@ -223,50 +129,19 @@ public class OrganizerMenu {
 
         renderEventsTable(myEvents);
         String eventId = ConsoleIO.readEventId("Enter Event ID to view attendees & check in");
-        if (eventId == null) return;
-        Optional<Event> evOpt = eventService.getEventById(eventId);
-        if (!evOpt.isPresent() || !evOpt.get().getOrganizerId().equals(user.getUserId())) {
+        Optional<Event> evOpt = findManageableEvent(eventId);
+        if (!evOpt.isPresent()) {
             ConsoleIO.printError("Event not found or unauthorized.");
             ConsoleIO.pause();
             return;
         }
-
-        List<Registration> regs = registrationService.getRegistrationsForEvent(eventId);
-        TableRenderer table = new TableRenderer("Reg ID", "User ID", "Name", "Email", "Status", "Checked-in Time");
-        for (Registration r : regs) {
-            Optional<User> uOpt = dataStore.getUserRepository().findById(r.getUserId());
-            String name = uOpt.map(User::getFullName).orElse("Unknown");
-            String email = uOpt.map(User::getEmail).orElse("Unknown");
-            String checkInStr = r.getCheckedInAt() != null ? r.getCheckedInAt().format(ConsoleIO.DATE_TIME_FORMATTER) : "-";
-            table.addRow(r.getRegistrationId(), r.getUserId(), name, email, r.getStatus().getDisplayName(), checkInStr);
-        }
-        table.render();
-
-        if (regs.isEmpty()) {
-            System.out.println(ConsoleIO.YELLOW + "No attendees have registered for this event yet. Check-in is not available." + ConsoleIO.RESET);
-            ConsoleIO.pause();
-            return;
-        }
-
-        System.out.println("1. Check In an Attendee");
-        System.out.println("0. Return");
-        int ch = ConsoleIO.readInt("Select", 0, 1);
-        if (ch == 1) {
-            String attendeeUserId = ConsoleIO.readUserId("Enter Attendee User ID (e.g. USR-1004)");
-            if (attendeeUserId == null) return;
-            RegistrationService.CheckInResult res = registrationService.checkInAttendee(user, eventId, attendeeUserId);
-            if (res.success) ConsoleIO.printSuccess(res.message);
-            else ConsoleIO.printError(res.message);
-        }
-        ConsoleIO.pause();
+        showRosterAndCheckIn(evOpt.get());
     }
 
     private void viewMyEventFeedback() {
         ConsoleIO.printSection("Reviews for My Completed Events");
-        User user = authService.getCurrentUser();
-        List<Event> myEvents = eventService.getEventsByOrganizer(user.getUserId());
 
-        for (Event e : myEvents) {
+        for (Event e : myEvents()) {
             List<Feedback> fbs = feedbackService.getFeedbackForEvent(e.getEventId());
             if (!fbs.isEmpty()) {
                 double avg = feedbackService.getAverageRating(e.getEventId());
@@ -325,39 +200,5 @@ public class OrganizerMenu {
         }
         table.render();
         ConsoleIO.pause();
-    }
-
-    private void browseAllEvents() {
-        ConsoleIO.printSection("All Events Across System");
-        List<Event> events = eventService.getAllEvents();
-        events = eventService.sortEvents(events, currentSortStrategy);
-        renderEventsTable(events);
-        ConsoleIO.pause();
-    }
-
-    private void renderEventsTable(List<Event> events) {
-        TableRenderer table = new TableRenderer(
-                "ID", "Title", "Category", "Venue", "Start Time", "Cap", "Confirmed", "Waitlist", "Status"
-        );
-
-        for (Event e : events) {
-            int confirmed = registrationService.getConfirmedCount(e.getEventId());
-            int waitlisted = registrationService.getWaitlistCount(e.getEventId());
-            String capStr = confirmed + "/" + e.getCapacity();
-            String startStr = e.getStartDateTime() != null ? e.getStartDateTime().format(ConsoleIO.DATE_TIME_FORMATTER) : "N/A";
-
-            table.addRow(
-                    e.getEventId(),
-                    e.getTitle(),
-                    e.getCategory(),
-                    e.getVenue(),
-                    startStr,
-                    String.valueOf(e.getCapacity()),
-                    capStr,
-                    String.valueOf(waitlisted),
-                    e.getStatus().getDisplayName()
-            );
-        }
-        table.render();
     }
 }

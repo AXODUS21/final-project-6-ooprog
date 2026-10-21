@@ -57,6 +57,7 @@ public class PlanOTest {
         testEnhancedInputValidation(authService, eventService, registrationService, feedbackService, dataStore);
         testEmptyDatabaseAndNumericFormatting();
         testRuleFixes();
+        testEncapsulation();
 
         // Cleanup
         cleanDirectory(new File(testDataDir));
@@ -587,16 +588,22 @@ public class PlanOTest {
         assertTrue("A completed event cannot be cancelled", !lifecycleEvents.cancelEvent(courtney, "EVT-1006").success);
         assertTrue("An event cannot be marked Ongoing before its start date",
                 !lifecycleEvents.updateEventStatus(courtney, "EVT-1001", EventStatus.ONGOING).success);
-        lifecycle.getEventRepository().findById("EVT-1003").get().setStatus(EventStatus.ONGOING);
+        // A session that started an hour ago can legitimately be moved to Ongoing
+        User gavin = userNamed(lifecycle, "gavin_org");
+        Event liveSession = new Event("EVT-9001", "Live Session", "Already running", gavin.getUserId(), "Seminar",
+                "Room L", LocalDateTime.now().minusHours(1), LocalDateTime.now().plusHours(1), 10);
+        lifecycle.getEventRepository().add(liveSession);
+        assertTrue("A started event can be marked Ongoing",
+                lifecycleEvents.updateEventStatus(gavin, "EVT-9001", EventStatus.ONGOING).success);
         assertTrue("An Ongoing event cannot move back to Upcoming",
-                !lifecycleEvents.updateEventStatus(userNamed(lifecycle, "gavin_org"), "EVT-1003", EventStatus.UPCOMING).success);
+                !lifecycleEvents.updateEventStatus(gavin, "EVT-9001", EventStatus.UPCOMING).success);
 
         // Events whose end time has passed no longer count as upcoming
         DataStore ended = freshStore("ended-events");
         for (String id : new String[]{"EVT-1003", "EVT-1004"}) {
             Event e = ended.getEventRepository().findById(id).get();
-            e.setStartDateTime(LocalDateTime.now().minusDays(3));
-            e.setEndDateTime(LocalDateTime.now().minusDays(3).plusHours(2));
+            e.updateDetails(e.getTitle(), e.getDescription(), e.getCategory(), e.getVenue(),
+                    LocalDateTime.now().minusDays(3), LocalDateTime.now().minusDays(3).plusHours(2), e.getCapacity());
         }
         ReportService.AdminDashboardData endedDash = new ReportService(ended).getAdminDashboard();
         assertTrue("Ended events are counted as awaiting completion, not Upcoming",
@@ -693,6 +700,54 @@ public class PlanOTest {
         List<Registration> demoWaitlist = reviews.getRegistrationRepository().findWaitlistedByEvent("EVT-1002");
         assertTrue("Demo data waitlists emily_watson on EVT-1002",
                 !demoWaitlist.isEmpty() && demoWaitlist.get(0).getUserId().equals(userNamed(reviews, "emily_watson").getUserId()));
+    }
+
+    /**
+     * Checks the rules the model classes now enforce themselves, and that saved data
+     * loads back through their constructors unchanged.
+     */
+    private static void testEncapsulation() {
+        System.out.println("\n--- Testing Encapsulation & Model Rules ---");
+
+        boolean rejected = false;
+        try {
+            new Registration("REG-9001", "EVT-1001", "USR-1004", RegistrationStatus.CHECKED_IN);
+        } catch (IllegalArgumentException e) {
+            rejected = true;
+        }
+        assertTrue("A new registration cannot start as Checked In", rejected);
+
+        DataStore store = freshStore("encapsulation");
+        User axel = userNamed(store, "axellerosh");
+        assertTrue("Passwords are checked without being exposed",
+                axel.passwordMatches("user123") && !axel.passwordMatches("wrong-password-1"));
+
+        boolean adminPromoted = true;
+        try {
+            userNamed(store, "admin").promoteToOrganizer();
+        } catch (IllegalStateException e) {
+            adminPromoted = false;
+        }
+        assertTrue("Only attendees can be promoted to Organizer", !adminPromoted);
+
+        // Change some state, save, and load it back through the private constructors
+        new UserService(store).deactivateUser(userNamed(store, "admin"), userNamed(store, "mark_lee").getUserId());
+        Feedback review = store.getFeedbackRepository().findById("FB-1002").get();
+        review.revise(2, "Revised after the hackathon", review.getSubmittedAt());
+        store.saveAll();
+
+        DataStore reloaded = new DataStore(Paths.get("test_data", "encapsulation").toString());
+        Event orientation = reloaded.getEventRepository().findById("EVT-1006").get();
+        Registration checkedIn = reloaded.getRegistrationRepository().findById("REG-1008").get();
+        Feedback reloadedReview = reloaded.getFeedbackRepository().findById("FB-1002").get();
+        assertTrue("Saved events load back with their status and organizer",
+                orientation.isCompleted() && "USR-1002".equals(orientation.getOrganizerId()));
+        assertTrue("Saved registrations load back with their check-in time",
+                checkedIn.isCheckedIn() && checkedIn.getCheckedInAt() != null);
+        assertTrue("Saved reviews and accounts load back with their latest changes",
+                reloadedReview.getRating() == 2 && "Revised after the hackathon".equals(reloadedReview.getComment())
+                        && !userNamed(reloaded, "mark_lee").isActive()
+                        && userNamed(reloaded, "mark_lee").passwordMatches("user123"));
     }
 
     private static DataStore freshStore(String name) {

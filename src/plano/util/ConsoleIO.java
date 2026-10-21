@@ -8,36 +8,26 @@ import java.util.Scanner;
 /**
  * Handles terminal I/O, ANSI colors, formatted banners, and safe user input prompts.
  * All output is plain ASCII so it displays the same on every console and Java version.
+ *
+ * Prompts that accept 'cancel', '0' or 'back' throw {@link OperationCancelledException};
+ * the menus catch it and return the user to the menu.
  */
 public class ConsoleIO {
     // ANSI color codes
     public static final String RESET = "\u001B[0m";
     public static final String BOLD = "\u001B[1m";
     public static final String DIM = "\u001B[2m";
-    public static final String UNDERLINE = "\u001B[4m";
 
-    public static final String BLACK = "\u001B[30m";
     public static final String RED = "\u001B[31m";
     public static final String GREEN = "\u001B[32m";
     public static final String YELLOW = "\u001B[33m";
     public static final String BLUE = "\u001B[34m";
-    public static final String MAGENTA = "\u001B[35m";
     public static final String CYAN = "\u001B[36m";
-    public static final String WHITE = "\u001B[37m";
-
-    public static final String BG_BLUE = "\u001B[44m";
-    public static final String BG_CYAN = "\u001B[46m";
-    public static final String BG_MAGENTA = "\u001B[45m";
 
     public static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     public static final DateTimeFormatter DISPLAY_FORMATTER = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
 
     private static final Scanner scanner = new Scanner(System.in);
-
-    public static void clearScreen() {
-        System.out.print("\033[H\033[2J");
-        System.out.flush();
-    }
 
     /** Repeats a string, e.g. repeat("=", 3) returns "===". */
     public static String repeat(String text, int count) {
@@ -92,6 +82,18 @@ public class ConsoleIO {
     }
 
     /**
+     * Returns the input unchanged, or throws if it is a cancel token.
+     *
+     * @throws OperationCancelledException if the user asked to cancel
+     */
+    private static String unlessCancelled(String input) {
+        if (isCancelToken(input)) {
+            throw new OperationCancelledException();
+        }
+        return input;
+    }
+
+    /**
      * Reads one trimmed line.
      *
      * @throws InputClosedException if the input stream has ended
@@ -112,6 +114,15 @@ public class ConsoleIO {
             }
             printError("This field cannot be empty. Please enter a valid value.");
         }
+    }
+
+    /**
+     * Reads a non-empty line.
+     *
+     * @throws OperationCancelledException if the user types a cancel token
+     */
+    public static String readCancellableString(String prompt) {
+        return unlessCancelled(readNonEmptyString(prompt));
     }
 
     public static String readOptionalString(String prompt, String defaultValue) {
@@ -152,25 +163,18 @@ public class ConsoleIO {
         }
     }
 
-    public static int readPositiveInt(String prompt) {
-        return readPositiveInt(prompt, 50000);
-    }
-
-    public static int readPositiveInt(String prompt, int maxLimit) {
-        Integer val = readCancellablePositiveInt(prompt, maxLimit);
-        return val != null ? val : 1;
-    }
-
-    public static Integer readCancellablePositiveInt(String prompt) {
+    public static int readCancellablePositiveInt(String prompt) {
         return readCancellablePositiveInt(prompt, 50000);
     }
 
-    public static Integer readCancellablePositiveInt(String prompt, int maxLimit) {
+    /**
+     * Reads a whole number from 1 to maxLimit.
+     *
+     * @throws OperationCancelledException if the user types a cancel token
+     */
+    public static int readCancellablePositiveInt(String prompt, int maxLimit) {
         while (true) {
-            String input = readString(prompt + " (or type 'cancel' / '0' to abort)");
-            if (isCancelToken(input)) {
-                return null;
-            }
+            String input = unlessCancelled(readString(prompt + " (or type 'cancel' / '0' to abort)"));
             if (isBlank(input)) {
                 printError("This field cannot be empty. Please enter a positive integer.");
                 continue;
@@ -240,13 +244,13 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static LocalDateTime readDateTime(String prompt, boolean mustBeFuture) {
         while (true) {
             System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (or 'cancel' to abort, e.g. 2026-11-20 14:30)" + RESET);
-            String input = readNonEmptyString(prompt);
-            if (isCancelToken(input)) {
-                return null;
-            }
+            String input = unlessCancelled(readNonEmptyString(prompt));
             try {
                 LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
                 if (mustBeFuture && dt.isBefore(LocalDateTime.now())) {
@@ -266,14 +270,14 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static LocalDateTime readDateTimeAfter(String prompt, LocalDateTime afterDateTime) {
         while (true) {
             System.out.println(DIM + "Format: yyyy-MM-dd HH:mm (or 'cancel' to abort, must be after " +
                     afterDateTime.format(DATE_TIME_FORMATTER) + ")" + RESET);
-            String input = readNonEmptyString(prompt);
-            if (isCancelToken(input)) {
-                return null;
-            }
+            String input = unlessCancelled(readNonEmptyString(prompt));
             try {
                 LocalDateTime dt = LocalDateTime.parse(input, DATE_TIME_FORMATTER);
                 if (!dt.isAfter(afterDateTime)) {
@@ -286,10 +290,6 @@ public class ConsoleIO {
                 printError("Invalid date/time format. Please use format: yyyy-MM-dd HH:mm");
             }
         }
-    }
-
-    public static LocalDateTime readOptionalDateTime(String prompt, LocalDateTime defaultValue) {
-        return readOptionalDateTime(prompt, defaultValue, false);
     }
 
     public static LocalDateTime readOptionalDateTime(String prompt, LocalDateTime defaultValue, boolean mustBeFuture) {
@@ -341,12 +341,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readEmail(String prompt) {
         while (true) {
-            String email = readNonEmptyString(prompt + " (or type 'cancel' to return)");
-            if (isCancelToken(email)) {
-                return null;
-            }
+            String email = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' to return)"));
             if (InputValidator.isValidEmail(email)) {
                 return email;
             }
@@ -370,12 +370,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readUsername(String prompt) {
         while (true) {
-            String user = readNonEmptyString(prompt + " (or type 'cancel' to return)");
-            if (isCancelToken(user)) {
-                return null;
-            }
+            String user = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' to return)"));
             if (InputValidator.isValidUsername(user)) {
                 return user.trim();
             }
@@ -383,12 +383,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readPassword(String prompt) {
         while (true) {
-            String pass = readNonEmptyString(prompt + " (or type 'cancel' to return)");
-            if (isCancelToken(pass)) {
-                return null;
-            }
+            String pass = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' to return)"));
             if (InputValidator.isValidPassword(pass)) {
                 return pass;
             }
@@ -396,12 +396,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readFullName(String prompt) {
         while (true) {
-            String name = readNonEmptyString(prompt + " (or type 'cancel' to return)");
-            if (isCancelToken(name)) {
-                return null;
-            }
+            String name = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' to return)"));
             if (InputValidator.isValidFullName(name)) {
                 return name.trim();
             }
@@ -409,12 +409,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readEventId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
-            if (isCancelToken(id)) {
-                return null;
-            }
+            String id = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)"));
             if (InputValidator.isValidEventId(id)) {
                 return id.trim();
             }
@@ -422,12 +422,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readUserId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
-            if (isCancelToken(id)) {
-                return null;
-            }
+            String id = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)"));
             if (InputValidator.isValidUserId(id)) {
                 return id.trim();
             }
@@ -435,12 +435,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readRegistrationId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
-            if (isCancelToken(id)) {
-                return null;
-            }
+            String id = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)"));
             if (InputValidator.isValidRegistrationId(id)) {
                 return id.trim();
             }
@@ -448,12 +448,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readCategoryId(String prompt) {
         while (true) {
-            String id = readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)");
-            if (isCancelToken(id)) {
-                return null;
-            }
+            String id = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' / '0' to return)"));
             if (InputValidator.isValidCategoryId(id)) {
                 return id.trim();
             }
@@ -461,12 +461,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readCancellableEventTitle(String prompt) {
         while (true) {
-            String val = readString(prompt + " (or type 'cancel' / '0' to abort)").trim();
-            if (isCancelToken(val)) {
-                return null;
-            }
+            String val = unlessCancelled(readString(prompt + " (or type 'cancel' / '0' to abort)").trim());
             if (InputValidator.isValidEventTitle(val)) {
                 return InputValidator.sanitizeSingleLine(val);
             }
@@ -474,22 +474,12 @@ public class ConsoleIO {
         }
     }
 
-    public static String readEventTitle(String prompt) {
-        while (true) {
-            String val = readNonEmptyString(prompt).trim();
-            if (InputValidator.isValidEventTitle(val)) {
-                return InputValidator.sanitizeSingleLine(val);
-            }
-            printError("Event title must be between 3 and 100 characters long.");
-        }
-    }
-
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readVenue(String prompt) {
         while (true) {
-            String val = readNonEmptyString(prompt + " (or type 'cancel' to abort)").trim();
-            if (isCancelToken(val)) {
-                return null;
-            }
+            String val = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' to abort)").trim());
             if (InputValidator.isValidVenue(val)) {
                 return InputValidator.sanitizeSingleLine(val);
             }
@@ -510,12 +500,12 @@ public class ConsoleIO {
         }
     }
 
+    /**
+     * @throws OperationCancelledException if the user types a cancel token
+     */
     public static String readComment(String prompt) {
         while (true) {
-            String val = readNonEmptyString(prompt + " (or type 'cancel' to abort)");
-            if (isCancelToken(val)) {
-                return null;
-            }
+            String val = unlessCancelled(readNonEmptyString(prompt + " (or type 'cancel' to abort)"));
             if (InputValidator.isValidComment(val)) {
                 return InputValidator.sanitizeSingleLine(val);
             }

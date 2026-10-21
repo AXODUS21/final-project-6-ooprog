@@ -52,6 +52,8 @@ PlanO separates administrative governance from day-to-day event operations acros
     - `SortByTitleStrategy`: Alphabetical order (A to Z).
     - `SortByCapacityStrategy`: Ranks events by venue capacity descending.
   - Attendees and admins can swap sorting strategies dynamically from the console UI.
+- **Template Method Pattern (`plano.ui`):**
+  - `RoleMenu.display()` runs the menu loop every role shares and calls the steps each role menu supplies (title, options, actions).
 - **Repository Pattern (`plano.repository`):**
   - Decouples in-memory domain collections from persistence storage.
   - `UserRepository`, `EventRepository`, `RegistrationRepository`, `FeedbackRepository`, `CategoryRepository`.
@@ -86,10 +88,50 @@ PlanO separates administrative governance from day-to-day event operations acros
 | Accounts | Sign-up creates Attendee accounts; Administrators promote Organizers. Deactivating a user cancels their registrations for events that have not started. An Organizer with events that have not ended cannot be deactivated. |
 | Edits | Every field is validated before anything is saved, so a rejected edit changes nothing. Capacity cannot drop below the number of confirmed attendees. |
 | Reports | Attendance rate = checked-in / registered attendees at completed events. Cancelled events are left out of totals. Events that have ended but were not marked Completed are listed separately. |
+| Cancelling input | Typing `cancel`, `0` or `back` at a prompt that offers it returns to the menu without changing anything. |
 
 ---
 
-## III. Pre-Seeded Demo Accounts
+## III. Object-Oriented Programming Principles
+
+### Encapsulation
+- Every field in every model class is `private`. IDs, owners and creation times are `final` and have no setters (`User`, `Event`, `Registration`, `Feedback`; `Category` is fully immutable).
+- State changes only through methods that guard their own rules: `Event.updateDetails(...)`, `cancel()`, `changeStatus(...)`; `Registration.promote()`, `checkIn(...)`, `cancel()`; `Feedback.revise(...)`; `User.changeEmail(...)`, `changePassword(...)`, `deactivate()`, `promoteToOrganizer()`.
+- `User` never exposes its password: `passwordMatches(...)` checks a login attempt instead.
+- A new `Registration` can only start as Confirmed or Waitlisted. Saved records are restored through private constructors in each model's `fromMap(...)`.
+- Repositories keep their collections `private`; `findAll()` returns a copy, never the internal map.
+
+### Abstraction
+- `RoleMenu` (abstract) states what every role menu must provide (a title, its options, how to handle a choice) without saying how.
+- `EventManagerMenu` (abstract) adds the event screens Administrators and Organizers share, leaving `canManage(Event)` abstract.
+- The `EventSortStrategy` and `EventFilterStrategy` interfaces hide how sorting and filtering work from the services and menus.
+- Services hide the business rules from the menus, and repositories hide storage from the services.
+
+### Inheritance
+```
+RoleMenu (abstract)
+├── AttendeeMenu
+└── EventManagerMenu (abstract)
+    ├── AdminMenu
+    └── OrganizerMenu
+```
+- Shared screens (browsing, the events table, sort choices, creating, editing, advancing and cancelling events, and the check-in roster) are written once in a parent class and reused by each role.
+- PlanO's own exceptions extend `RuntimeException`: `OperationCancelledException`, `InputClosedException` and `DataLoadException`.
+
+### Polymorphism
+- `MenuController` keeps one `RoleMenu` per `Role` and calls `display()` on the logged-in user's menu without checking which role it is.
+- `RoleMenu.display()` calls `printMenuOptions()` and `handleOption(...)`, and each subclass answers with its own version.
+- `canManage(Event)` allows every event in `AdminMenu` but only the organizer's own events in `OrganizerMenu`; the shared screens call it without knowing which menu they are in.
+- The five sort strategies are swapped at runtime through the `EventSortStrategy` interface.
+
+### Exception Handling
+- Typing `cancel`, `0` or `back` at a cancellable prompt throws `OperationCancelledException`. Each menu catches it in one place and returns to the menu, so no workflow has to check for a cancelled input.
+- `InputClosedException` ends the program cleanly when console input runs out, and `DataLoadException` stops startup when a data file is malformed.
+- Model methods throw `IllegalStateException` for changes their rules do not allow; services turn these into the messages the user sees.
+
+---
+
+## IV. Pre-Seeded Demo Accounts
 
 The system automatically creates this demo data on its first run:
 
@@ -113,7 +155,7 @@ To reset the demo data, close PlanO and delete the `data/` folder; it is recreat
 
 ---
 
-## IV. Project Structure
+## V. Project Structure
 
 ```
 final-project-6-ooprog/
@@ -160,23 +202,26 @@ final-project-6-ooprog/
 │       │   └── ReportService.java
 │       ├── util/                 # Terminal UI & parsing utilities
 │       │   ├── ConsoleIO.java
+│       │   ├── OperationCancelledException.java
 │       │   ├── InputClosedException.java
 │       │   ├── TableRenderer.java
 │       │   ├── InputValidator.java
 │       │   └── SimpleJson.java
 │       └── ui/                   # Terminal user interface controllers
 │           ├── MenuController.java
+│           ├── RoleMenu.java         # Abstract base of every role menu
+│           ├── EventManagerMenu.java # Abstract base of the Admin and Organizer menus
 │           ├── AdminMenu.java
 │           ├── OrganizerMenu.java
 │           └── AttendeeMenu.java
 └── test/
     └── plano/
-        └── PlanOTest.java        # Automated test suite (109 checks)
+        └── PlanOTest.java        # Automated test suite (116 checks)
 ```
 
 ---
 
-## V. How to Compile and Run
+## VI. How to Compile and Run
 
 **Requirement:** a JDK, version 8 or newer (the course target is Java 8).
 
@@ -226,7 +271,7 @@ The tests use their own `test_data/` folder and delete it afterwards; your `data
 
 ---
 
-## VI. Development Notes
+## VII. Development Notes
 
 - **Keep the code Java 8 compatible.** On JDK 9 or newer, the run scripts compile with `--release 8`, which rejects anything Java 8 does not have (for example `String.isBlank()`, `Optional.isEmpty()`, `var`, or `case X ->` switches). When compiling by hand on a newer JDK, add `--release 8` yourself.
 - **Keep source files ASCII-only.** Java 8 on Windows prints characters such as box-drawing lines, stars, or emoji as `?`.

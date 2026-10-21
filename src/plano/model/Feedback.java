@@ -7,74 +7,58 @@ import java.util.Map;
 
 /**
  * Represents an attendee's review and rating for a completed event.
+ * The IDs never change; the rating and comment change only through {@link #revise}.
  */
 public class Feedback {
-    private String feedbackId;
-    private String eventId;
-    private String userId;
+    private final String feedbackId;
+    private final String eventId;
+    private final String userId;
     private int rating; // 1 to 5
     private String comment;
     private LocalDateTime submittedAt;
 
-    public Feedback() {
-        this.submittedAt = LocalDateTime.now();
+    /** Creates a new review submitted now. Ratings outside 1-5 are clamped into range. */
+    public Feedback(String feedbackId, String eventId, String userId, int rating, String comment) {
+        this(feedbackId, eventId, userId, rating, comment, LocalDateTime.now());
     }
 
-    public Feedback(String feedbackId, String eventId, String userId, int rating, String comment) {
+    /** Restores a review exactly as it was saved. */
+    private Feedback(String feedbackId, String eventId, String userId, int rating, String comment,
+                     LocalDateTime submittedAt) {
         this.feedbackId = feedbackId;
         this.eventId = eventId;
         this.userId = userId;
-        this.rating = Math.max(1, Math.min(5, rating));
+        this.rating = clampRating(rating);
         this.comment = comment;
-        this.submittedAt = LocalDateTime.now();
+        this.submittedAt = submittedAt;
+    }
+
+    private static int clampRating(int rating) {
+        return Math.max(1, Math.min(5, rating));
     }
 
     public String getFeedbackId() {
         return feedbackId;
     }
 
-    public void setFeedbackId(String feedbackId) {
-        this.feedbackId = feedbackId;
-    }
-
     public String getEventId() {
         return eventId;
-    }
-
-    public void setEventId(String eventId) {
-        this.eventId = eventId;
     }
 
     public String getUserId() {
         return userId;
     }
 
-    public void setUserId(String userId) {
-        this.userId = userId;
-    }
-
     public int getRating() {
         return rating;
-    }
-
-    public void setRating(int rating) {
-        this.rating = Math.max(1, Math.min(5, rating));
     }
 
     public String getComment() {
         return comment;
     }
 
-    public void setComment(String comment) {
-        this.comment = comment;
-    }
-
     public LocalDateTime getSubmittedAt() {
         return submittedAt;
-    }
-
-    public void setSubmittedAt(LocalDateTime submittedAt) {
-        this.submittedAt = submittedAt;
     }
 
     /** Plain-ASCII rating bar, e.g. "****-" for 4 out of 5. */
@@ -85,6 +69,15 @@ public class Feedback {
         }
         return sb.toString();
     }
+
+    /** Replaces the rating and comment when an attendee updates their review. */
+    public void revise(int newRating, String newComment, LocalDateTime revisedAt) {
+        this.rating = clampRating(newRating);
+        this.comment = newComment;
+        this.submittedAt = revisedAt;
+    }
+
+    // ==================== PERSISTENCE ====================
 
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -99,25 +92,27 @@ public class Feedback {
 
     public static Feedback fromMap(Map<String, Object> map) {
         if (map == null) return null;
-        Feedback fb = new Feedback();
-        fb.setFeedbackId((String) map.get("feedbackId"));
-        fb.setEventId((String) map.get("eventId"));
-        fb.setUserId((String) map.get("userId"));
 
+        int rating = 0;
         Object rObj = map.get("rating");
         if (rObj instanceof Number) {
-            fb.setRating(((Number) rObj).intValue());
+            rating = ((Number) rObj).intValue();
         } else if (rObj != null) {
-            fb.setRating(Integer.parseInt(rObj.toString()));
+            rating = Integer.parseInt(rObj.toString());
         }
 
-        fb.setComment((String) map.get("comment"));
-
+        LocalDateTime submittedAt = LocalDateTime.now();
         String sa = (String) map.get("submittedAt");
         if (sa != null && !sa.trim().isEmpty()) {
-            fb.setSubmittedAt(LocalDateTime.parse(sa, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+            submittedAt = LocalDateTime.parse(sa, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         }
 
-        return fb;
+        return new Feedback(
+                (String) map.get("feedbackId"),
+                (String) map.get("eventId"),
+                (String) map.get("userId"),
+                rating,
+                (String) map.get("comment"),
+                submittedAt);
     }
 }

@@ -3,7 +3,7 @@ package plano.ui;
 import plano.model.*;
 import plano.repository.DataStore;
 import plano.service.*;
-import plano.strategy.*;
+import plano.strategy.EventFilterCriteria;
 import plano.util.ConsoleIO;
 import plano.util.TableRenderer;
 
@@ -15,105 +15,66 @@ import java.util.Optional;
  * Provides event discovery, dynamic Strategy-based sorting, RSVP/waitlist registrations,
  * self-service cancellation with auto-promotion, and post-event reviews.
  */
-public class AttendeeMenu {
-    private final DataStore dataStore;
-    private final AuthService authService;
+public class AttendeeMenu extends RoleMenu {
     private final UserService userService;
-    private final EventService eventService;
-    private final RegistrationService registrationService;
-    private final FeedbackService feedbackService;
-
-    private EventSortStrategy currentSortStrategy = new SortByDateAscStrategy();
     private final EventFilterCriteria activeFilterCriteria = new EventFilterCriteria();
 
     public AttendeeMenu(DataStore dataStore, AuthService authService, UserService userService,
                         EventService eventService, RegistrationService registrationService,
                         FeedbackService feedbackService) {
-        this.dataStore = dataStore;
-        this.authService = authService;
+        super(dataStore, authService, eventService, registrationService, feedbackService);
         this.userService = userService;
-        this.eventService = eventService;
-        this.registrationService = registrationService;
-        this.feedbackService = feedbackService;
     }
 
-    public void display() {
-        User user = authService.getCurrentUser();
-        while (authService.isLoggedIn()) {
-            ConsoleIO.printBanner("PlanO - Attendee Portal", "Welcome, " + user.getFullName() + " (" + user.getUsername() + ")");
-            System.out.println(" 1. Discover & Browse Events (Sort: " + currentSortStrategy.getName() + ")");
-            System.out.println(" 2. View Event Details & Register / RSVP");
-            System.out.println(" 3. My Registrations (View Status, Waitlist & Cancel)");
-            System.out.println(" 4. Submit Feedback & Rating for Completed Events");
-            System.out.println(" 5. Switch Sorting Strategy / Filter Search");
-            System.out.println(" 6. My Account Profile");
-            System.out.println(" 0. Logout");
-            System.out.println();
+    @Override
+    protected String getPortalTitle() {
+        return "PlanO - Attendee Portal";
+    }
 
-            int choice = ConsoleIO.readInt("Select an option", 0, 6);
-            switch (choice) {
-                case 1:
-                    browseEvents();
-                    break;
-                case 2:
-                    viewDetailsAndRegister();
-                    break;
-                case 3:
-                    manageMyRegistrations();
-                    break;
-                case 4:
-                    submitEventFeedback();
-                    break;
-                case 5:
-                    configureSortAndFilter();
-                    break;
-                case 6:
-                    manageProfile();
-                    break;
-                case 0:
-                    authService.logout();
-                    ConsoleIO.printSuccess("Logged out successfully.");
-                    return;
-                default:
-                    break;
-            }
+    @Override
+    protected String getBannerSubtitle(User user) {
+        return "Welcome, " + user.getFullName() + " (" + user.getUsername() + ")";
+    }
+
+    @Override
+    protected void printMenuOptions() {
+        System.out.println(" 1. Discover & Browse Events (Sort: " + currentSortStrategy.getName() + ")");
+        System.out.println(" 2. View Event Details & Register / RSVP");
+        System.out.println(" 3. My Registrations (View Status, Waitlist & Cancel)");
+        System.out.println(" 4. Submit Feedback & Rating for Completed Events");
+        System.out.println(" 5. Switch Sorting Strategy / Filter Search");
+        System.out.println(" 6. My Account Profile");
+    }
+
+    @Override
+    protected int getOptionCount() {
+        return 6;
+    }
+
+    @Override
+    protected void handleOption(int choice) {
+        switch (choice) {
+            case 1:
+                browseEvents("Discover Events", activeFilterCriteria);
+                break;
+            case 2:
+                viewDetailsAndRegister();
+                break;
+            case 3:
+                manageMyRegistrations();
+                break;
+            case 4:
+                submitEventFeedback();
+                break;
+            case 5:
+                configureSortAndFilter();
+                break;
+            case 6:
+                manageProfile();
+                break;
+            default:
+                break;
         }
-    }
-
-    private void browseEvents() {
-        ConsoleIO.printSection("Discover Events");
-        List<Event> events = eventService.getAllEvents();
-        events = eventService.filterEvents(events, activeFilterCriteria);
-        events = eventService.sortEvents(events, currentSortStrategy);
-
-        renderEventsTable(events);
-        ConsoleIO.pause();
-    }
-
-    private void renderEventsTable(List<Event> events) {
-        TableRenderer table = new TableRenderer(
-                "ID", "Title", "Category", "Venue", "Start Time", "Cap", "Confirmed", "Waitlist", "Status"
-        );
-
-        for (Event e : events) {
-            int confirmed = registrationService.getConfirmedCount(e.getEventId());
-            int waitlisted = registrationService.getWaitlistCount(e.getEventId());
-            String capStr = confirmed + "/" + e.getCapacity();
-            String startStr = e.getStartDateTime() != null ? e.getStartDateTime().format(ConsoleIO.DATE_TIME_FORMATTER) : "N/A";
-
-            table.addRow(
-                    e.getEventId(),
-                    e.getTitle(),
-                    e.getCategory(),
-                    e.getVenue(),
-                    startStr,
-                    String.valueOf(e.getCapacity()),
-                    capStr,
-                    String.valueOf(waitlisted),
-                    e.getStatus().getDisplayName()
-            );
-        }
-        table.render();
     }
 
     private void viewDetailsAndRegister() {
@@ -125,7 +86,6 @@ public class AttendeeMenu {
         }
 
         String eventId = ConsoleIO.readEventId("Enter Event ID (e.g. EVT-1002)");
-        if (eventId == null) return;
         Optional<Event> eventOpt = eventService.getEventById(eventId);
         if (!eventOpt.isPresent()) {
             ConsoleIO.printError("Event not found with ID: " + eventId);
@@ -163,11 +123,7 @@ public class AttendeeMenu {
         } else {
             if (ConsoleIO.readConfirmation("Would you like to register for this event?")) {
                 RegistrationService.RegistrationResult res = registrationService.register(user, eventId);
-                if (res.success) {
-                    ConsoleIO.printSuccess(res.message);
-                } else {
-                    ConsoleIO.printError(res.message);
-                }
+                printResult(res.success, res.message);
             }
         }
         ConsoleIO.pause();
@@ -200,14 +156,9 @@ public class AttendeeMenu {
         int ch = ConsoleIO.readInt("Option", 0, 1);
         if (ch == 1) {
             String regId = ConsoleIO.readRegistrationId("Enter Registration ID to cancel (e.g. REG-1004)");
-            if (regId == null) return;
             if (ConsoleIO.readConfirmation("Are you sure you want to cancel this registration?")) {
                 RegistrationService.CancellationResult res = registrationService.cancelRegistration(user, regId);
-                if (res.success) {
-                    ConsoleIO.printSuccess(res.message);
-                } else {
-                    ConsoleIO.printError(res.message);
-                }
+                printResult(res.success, res.message);
             }
         }
         ConsoleIO.pause();
@@ -244,54 +195,25 @@ public class AttendeeMenu {
         int ch = ConsoleIO.readInt("Option", 0, 1);
         if (ch == 1) {
             String eventId = ConsoleIO.readEventId("Enter Event ID to review");
-            if (eventId == null) return;
             int rating = ConsoleIO.readInt("Rating (1 = Poor, 5 = Excellent)", 1, 5);
             String comment = ConsoleIO.readComment("Your Review Comments");
-            if (comment == null) return;
 
             FeedbackService.FeedbackResult res = feedbackService.submitFeedback(user, eventId, rating, comment);
-            if (res.success) ConsoleIO.printSuccess(res.message);
-            else ConsoleIO.printError(res.message);
+            printResult(res.success, res.message);
         }
         ConsoleIO.pause();
     }
 
     private void configureSortAndFilter() {
-        ConsoleIO.printSection("Configure Search, Filter & Strategy Sorting");
-        System.out.println("Active Sort Strategy: " + ConsoleIO.BOLD + currentSortStrategy.getName() + ConsoleIO.RESET);
-        System.out.println("1. Date (Earliest First)");
-        System.out.println("2. Date (Latest First)");
-        System.out.println("3. Popularity (Most Registrations First)");
-        System.out.println("4. Alphabetical (Title A - Z)");
-        System.out.println("5. Capacity (Largest Venue First)");
+        printSortOptions();
         System.out.println("6. Set Keyword Search / Category / Venue Filter");
         System.out.println("7. Show Open Spots Only (" + (activeFilterCriteria.isAvailableOnly() ? "Enabled" : "Disabled") + ")");
         System.out.println("8. Clear All Active Filters");
         System.out.println("0. Back");
 
         int choice = ConsoleIO.readInt("Choose option", 0, 8);
-        switch (choice) {
-            case 1:
-                currentSortStrategy = new SortByDateAscStrategy();
-                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-                break;
-            case 2:
-                currentSortStrategy = new SortByDateDescStrategy();
-                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-                break;
-            case 3:
-                currentSortStrategy = new SortByPopularityStrategy();
-                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-                break;
-            case 4:
-                currentSortStrategy = new SortByTitleStrategy();
-                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-                break;
-            case 5:
-                currentSortStrategy = new SortByCapacityStrategy();
-                ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
-                break;
-            case 6:
+        if (!applySortChoice(choice)) {
+            if (choice == 6) {
                 String kw = ConsoleIO.readString("Search keyword (title/description, or leave blank)");
                 activeFilterCriteria.setTextQuery(kw);
                 String cat = ConsoleIO.readString("Category filter (or leave blank)");
@@ -299,17 +221,13 @@ public class AttendeeMenu {
                 String venue = ConsoleIO.readString("Venue filter (or leave blank)");
                 activeFilterCriteria.setVenue(venue);
                 ConsoleIO.printSuccess("Filters applied.");
-                break;
-            case 7:
+            } else if (choice == 7) {
                 activeFilterCriteria.setAvailableOnly(!activeFilterCriteria.isAvailableOnly());
                 ConsoleIO.printSuccess("Open spots only filter set to: " + activeFilterCriteria.isAvailableOnly());
-                break;
-            case 8:
+            } else if (choice == 8) {
                 activeFilterCriteria.reset();
                 ConsoleIO.printSuccess("All filters cleared.");
-                break;
-            default:
-                break;
+            }
         }
         ConsoleIO.pause();
     }
@@ -330,8 +248,7 @@ public class AttendeeMenu {
             String newPass = ConsoleIO.readString("New Password (leave empty to keep current)");
 
             UserService.OperationResult res = userService.updateProfile(user.getUserId(), newName, newEmail, newPass);
-            if (res.success) ConsoleIO.printSuccess(res.message);
-            else ConsoleIO.printError(res.message);
+            printResult(res.success, res.message);
         }
         ConsoleIO.pause();
     }

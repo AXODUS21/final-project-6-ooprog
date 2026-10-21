@@ -76,9 +76,7 @@ public class FeedbackService {
         Feedback feedback;
         if (existingOpt.isPresent()) {
             feedback = existingOpt.get();
-            feedback.setRating(rating);
-            feedback.setComment(comment.trim());
-            feedback.setSubmittedAt(LocalDateTime.now());
+            feedback.revise(rating, comment.trim(), LocalDateTime.now());
         } else {
             String fbId = dataStore.nextFeedbackId();
             feedback = new Feedback(fbId, eventId, attendee.getUserId(), rating, comment.trim());

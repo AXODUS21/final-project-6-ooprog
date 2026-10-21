@@ -46,7 +46,7 @@ public class AuthService {
 
         // Check the password first, so a wrong guess never reveals whether the account is deactivated.
         User user = userOpt.get();
-        if (!user.getPassword().equals(password)) {
+        if (!user.passwordMatches(password)) {
             return new LoginResult(false, "Invalid username or password.", null);
         }
 

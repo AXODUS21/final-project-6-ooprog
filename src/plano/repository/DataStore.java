@@ -334,7 +334,7 @@ public class DataStore {
                 now.minusDays(5).withHour(14).withMinute(0),
                 now.minusDays(5).withHour(16).withMinute(0),
                 40);
-        e6.setStatus(EventStatus.COMPLETED);
+        e6.changeStatus(EventStatus.COMPLETED, now);
 
         eventRepository.add(e1);
         eventRepository.add(e2);
@@ -357,10 +357,10 @@ public class DataStore {
         registrationRepository.add(new Registration("REG-1007", "EVT-1002", "USR-1008", RegistrationStatus.WAITLISTED));
 
         // EVT-1006 (Completed): two checked-in attendees and one no-show
-        Registration regComp1 = new Registration("REG-1008", "EVT-1006", "USR-1004", RegistrationStatus.CHECKED_IN);
-        regComp1.setCheckedInAt(now.minusDays(5).withHour(14).withMinute(5));
-        Registration regComp2 = new Registration("REG-1009", "EVT-1006", "USR-1005", RegistrationStatus.CHECKED_IN);
-        regComp2.setCheckedInAt(now.minusDays(5).withHour(14).withMinute(10));
+        Registration regComp1 = new Registration("REG-1008", "EVT-1006", "USR-1004", RegistrationStatus.CONFIRMED);
+        regComp1.checkIn(now.minusDays(5).withHour(14).withMinute(5));
+        Registration regComp2 = new Registration("REG-1009", "EVT-1006", "USR-1005", RegistrationStatus.CONFIRMED);
+        regComp2.checkIn(now.minusDays(5).withHour(14).withMinute(10));
         Registration regComp3 = new Registration("REG-1010", "EVT-1006", "USR-1006", RegistrationStatus.CONFIRMED); // registered but absent
 
         registrationRepository.add(regComp1);

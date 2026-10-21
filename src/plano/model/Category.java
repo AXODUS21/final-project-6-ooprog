@@ -5,13 +5,12 @@ import java.util.Map;
 
 /**
  * Represents an event category (e.g. Conference, Seminar, Workshop, Meetup, Community).
+ * Categories are immutable: events refer to them by name, so a category is added or removed, never edited.
  */
 public class Category {
-    private String categoryId;
-    private String name;
-    private String description;
-
-    public Category() {}
+    private final String categoryId;
+    private final String name;
+    private final String description;
 
     public Category(String categoryId, String name, String description) {
         this.categoryId = categoryId;
@@ -23,24 +22,12 @@ public class Category {
         return categoryId;
     }
 
-    public void setCategoryId(String categoryId) {
-        this.categoryId = categoryId;
-    }
-
     public String getName() {
         return name;
     }
 
-    public void setName(String name) {
-        this.name = name;
-    }
-
     public String getDescription() {
         return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
     }
 
     public Map<String, Object> toMap() {
@@ -53,11 +40,10 @@ public class Category {
 
     public static Category fromMap(Map<String, Object> map) {
         if (map == null) return null;
-        Category c = new Category();
-        c.setCategoryId((String) map.get("categoryId"));
-        c.setName((String) map.get("name"));
-        c.setDescription((String) map.get("description"));
-        return c;
+        return new Category(
+                (String) map.get("categoryId"),
+                (String) map.get("name"),
+                (String) map.get("description"));
     }
 
     @Override

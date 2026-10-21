@@ -213,13 +213,7 @@ public class EventService {
 
         // 2. Every check passed: apply all changes together.
         boolean capacityGrew = newCapacity > event.getCapacity();
-        event.setTitle(newTitle);
-        event.setDescription(newDescription);
-        event.setCategory(newCategory);
-        event.setVenue(newVenue);
-        event.setStartDateTime(newStart);
-        event.setEndDateTime(newEnd);
-        event.setCapacity(newCapacity);
+        event.updateDetails(newTitle, newDescription, newCategory, newVenue, newStart, newEnd, newCapacity);
 
         List<Registration> promoted = capacityGrew
                 ? registrationService.fillOpenSpots(event)

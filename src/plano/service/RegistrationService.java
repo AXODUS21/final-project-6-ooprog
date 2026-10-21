@@ -37,10 +37,6 @@ public class RegistrationService {
         return dataStore.getRegistrationRepository().countWaitlistedByEvent(eventId);
     }
 
-    public int getCheckedInCount(String eventId) {
-        return dataStore.getRegistrationRepository().countCheckedInByEvent(eventId);
-    }
-
     public int getWaitlistPosition(String eventId, String userId) {
         List<Registration> waitlist = dataStore.getRegistrationRepository().findWaitlistedByEvent(eventId);
         for (int i = 0; i < waitlist.size(); i++) {

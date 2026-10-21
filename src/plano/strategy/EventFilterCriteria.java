@@ -46,18 +46,15 @@ public class EventFilterCriteria {
         return fromDate;
     }
 
-    public void setFromDate(LocalDateTime fromDate) {
-        this.fromDate = fromDate;
-    }
-
     public LocalDateTime getToDate() {
         return toDate;
     }
 
-    public void setToDate(LocalDateTime toDate) {
-        this.toDate = toDate;
-    }
-
+    /**
+     * Sets the start-date range to filter by (either end may be null).
+     *
+     * @return false, leaving the range unchanged, if from is after to
+     */
     public boolean setDateRange(LocalDateTime from, LocalDateTime to) {
         if (from != null && to != null && from.isAfter(to)) {
             return false;

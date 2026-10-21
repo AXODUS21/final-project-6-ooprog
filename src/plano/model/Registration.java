@@ -7,76 +7,67 @@ import java.util.Map;
 
 /**
  * Represents an attendee's registration for an event.
+ * The IDs and registration time never change; the status only changes through
+ * {@link #promote()}, {@link #checkIn(LocalDateTime)} and {@link #cancel()}.
  */
 public class Registration {
     private static final DateTimeFormatter MESSAGE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
-    private String registrationId;
-    private String eventId;
-    private String userId;
+    private final String registrationId;
+    private final String eventId;
+    private final String userId;
     private RegistrationStatus status;
-    private LocalDateTime registeredAt;
+    private final LocalDateTime registeredAt;
     private LocalDateTime checkedInAt;
 
-    public Registration() {
-        this.status = RegistrationStatus.CONFIRMED;
-        this.registeredAt = LocalDateTime.now();
+    /**
+     * Creates a new registration, which starts either CONFIRMED (a seat was free)
+     * or WAITLISTED (the event was full). A null status means CONFIRMED.
+     *
+     * @throws IllegalArgumentException for any other starting status
+     */
+    public Registration(String registrationId, String eventId, String userId, RegistrationStatus initialStatus) {
+        this(registrationId, eventId, userId,
+                initialStatus != null ? initialStatus : RegistrationStatus.CONFIRMED,
+                LocalDateTime.now(), null);
+        if (status != RegistrationStatus.CONFIRMED && status != RegistrationStatus.WAITLISTED) {
+            throw new IllegalArgumentException("A new registration must start as CONFIRMED or WAITLISTED.");
+        }
     }
 
-    public Registration(String registrationId, String eventId, String userId, RegistrationStatus status) {
+    /** Restores a registration exactly as it was saved. */
+    private Registration(String registrationId, String eventId, String userId, RegistrationStatus status,
+                         LocalDateTime registeredAt, LocalDateTime checkedInAt) {
         this.registrationId = registrationId;
         this.eventId = eventId;
         this.userId = userId;
-        this.status = status != null ? status : RegistrationStatus.CONFIRMED;
-        this.registeredAt = LocalDateTime.now();
+        this.status = status;
+        this.registeredAt = registeredAt;
+        this.checkedInAt = checkedInAt;
     }
 
     public String getRegistrationId() {
         return registrationId;
     }
 
-    public void setRegistrationId(String registrationId) {
-        this.registrationId = registrationId;
-    }
-
     public String getEventId() {
         return eventId;
-    }
-
-    public void setEventId(String eventId) {
-        this.eventId = eventId;
     }
 
     public String getUserId() {
         return userId;
     }
 
-    public void setUserId(String userId) {
-        this.userId = userId;
-    }
-
     public RegistrationStatus getStatus() {
         return status;
-    }
-
-    public void setStatus(RegistrationStatus status) {
-        this.status = status;
     }
 
     public LocalDateTime getRegisteredAt() {
         return registeredAt;
     }
 
-    public void setRegisteredAt(LocalDateTime registeredAt) {
-        this.registeredAt = registeredAt;
-    }
-
     public LocalDateTime getCheckedInAt() {
         return checkedInAt;
-    }
-
-    public void setCheckedInAt(LocalDateTime checkedInAt) {
-        this.checkedInAt = checkedInAt;
     }
 
     public boolean isConfirmed() {
@@ -99,6 +90,8 @@ public class Registration {
     public boolean holdsSeat() {
         return isConfirmed() || isCheckedIn();
     }
+
+    // ==================== BEHAVIOR ====================
 
     /**
      * Moves a waitlisted registration into a confirmed seat.
@@ -144,6 +137,8 @@ public class Registration {
         status = RegistrationStatus.CANCELLED;
     }
 
+    // ==================== PERSISTENCE ====================
+
     public Map<String, Object> toMap() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("registrationId", registrationId);
@@ -157,22 +152,20 @@ public class Registration {
 
     public static Registration fromMap(Map<String, Object> map) {
         if (map == null) return null;
-        Registration reg = new Registration();
-        reg.setRegistrationId((String) map.get("registrationId"));
-        reg.setEventId((String) map.get("eventId"));
-        reg.setUserId((String) map.get("userId"));
-        reg.setStatus(RegistrationStatus.fromString((String) map.get("status")));
+        LocalDateTime registeredAt = parseDateTime((String) map.get("registeredAt"));
+        return new Registration(
+                (String) map.get("registrationId"),
+                (String) map.get("eventId"),
+                (String) map.get("userId"),
+                RegistrationStatus.fromString((String) map.get("status")),
+                registeredAt != null ? registeredAt : LocalDateTime.now(),
+                parseDateTime((String) map.get("checkedInAt")));
+    }
 
-        String ra = (String) map.get("registeredAt");
-        if (ra != null && !ra.trim().isEmpty()) {
-            reg.setRegisteredAt(LocalDateTime.parse(ra, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+    private static LocalDateTime parseDateTime(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return null;
         }
-
-        String ca = (String) map.get("checkedInAt");
-        if (ca != null && !ca.trim().isEmpty()) {
-            reg.setCheckedInAt(LocalDateTime.parse(ca, DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        }
-
-        return reg;
+        return LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 }
