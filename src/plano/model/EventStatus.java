@@ -19,12 +19,19 @@ public enum EventStatus {
         return displayName;
     }
 
+    /**
+     * Reads a saved status name, in any letter case.
+     *
+     * @throws IllegalArgumentException if the name is missing or is not an event status
+     */
     public static EventStatus fromString(String val) {
-        if (val == null) return UPCOMING;
-        try {
-            return EventStatus.valueOf(val.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return UPCOMING;
+        if (val != null) {
+            for (EventStatus status : values()) {
+                if (status.name().equalsIgnoreCase(val.trim())) {
+                    return status;
+                }
+            }
         }
+        throw new IllegalArgumentException("unknown event status '" + val + "'");
     }
 }

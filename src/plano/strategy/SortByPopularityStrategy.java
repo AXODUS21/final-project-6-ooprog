@@ -19,7 +19,7 @@ public class SortByPopularityStrategy implements EventSortStrategy {
 
     @Override
     public String getDescription() {
-        return "Trending events ordered by highest attendee registration count first.";
+        return "Events with the most seats taken first.";
     }
 
     @Override
@@ -30,8 +30,8 @@ public class SortByPopularityStrategy implements EventSortStrategy {
         }
 
         sorted.sort((e1, e2) -> {
-            int count1 = regRepo.countConfirmedByEvent(e1.getEventId());
-            int count2 = regRepo.countConfirmedByEvent(e2.getEventId());
+            int count1 = regRepo.countSeatsTakenByEvent(e1.getEventId());
+            int count2 = regRepo.countSeatsTakenByEvent(e2.getEventId());
             // descending count
             int cmp = Integer.compare(count2, count1);
             if (cmp != 0) return cmp;

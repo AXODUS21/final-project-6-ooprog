@@ -18,12 +18,19 @@ public enum Role {
         return displayName;
     }
 
+    /**
+     * Reads a saved role name, in any letter case.
+     *
+     * @throws IllegalArgumentException if the name is missing or is not a role
+     */
     public static Role fromString(String val) {
-        if (val == null) return ATTENDEE;
-        try {
-            return Role.valueOf(val.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return ATTENDEE;
+        if (val != null) {
+            for (Role role : values()) {
+                if (role.name().equalsIgnoreCase(val.trim())) {
+                    return role;
+                }
+            }
         }
+        throw new IllegalArgumentException("unknown role '" + val + "'");
     }
 }

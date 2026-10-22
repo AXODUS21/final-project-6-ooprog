@@ -44,14 +44,14 @@ PlanO separates administrative governance from day-to-day event operations acros
 ### 2. Design Patterns & Architecture
 - **Strategy Pattern (`plano.strategy`):**
   - Used for dynamic event sorting and multi-criteria filtering at runtime.
-  - Interfaces: `EventSortStrategy` and `EventFilterStrategy`.
+  - Interfaces: `EventSortStrategy` and `EventFilterStrategy` (implemented by `MultiCriteriaFilterStrategy`).
   - Concrete Sort Strategies:
     - `SortByDateAscStrategy`: Chronological order (earliest first).
     - `SortByDateDescStrategy`: Reverse-chronological order (latest first).
-    - `SortByPopularityStrategy`: Ranks events by number of confirmed registrations descending.
+    - `SortByPopularityStrategy`: Ranks events by seats taken, most first.
     - `SortByTitleStrategy`: Alphabetical order (A to Z).
-    - `SortByCapacityStrategy`: Ranks events by venue capacity descending.
-  - Attendees and admins can swap sorting strategies dynamically from the console UI.
+    - `SortByCapacityStrategy`: Ranks events by capacity, largest first.
+  - Attendees and admins can swap sorting strategies dynamically from the console UI. The sort menu is built from one list of strategies in `RoleMenu`, using each strategy's own name and description, so a new sort order is one new class plus one line in that list.
 - **Template Method Pattern (`plano.ui`):**
   - `RoleMenu.display()` runs the menu loop every role shares and calls the steps each role menu supplies (title, options, actions).
 - **Repository Pattern (`plano.repository`):**
@@ -63,7 +63,8 @@ PlanO separates administrative governance from day-to-day event operations acros
   - Implements a pure standard Java recursive-descent JSON parser and serializer.
   - All data is saved automatically to human-readable JSON files in the `data/` directory (`users.json`, `events.json`, `registrations.json`, `feedbacks.json`, `categories.json`).
   - The `data/` directory is created on the first run with demo data dated relative to that day, so the demo events are always upcoming. It is not stored in git.
-  - Loading is all-or-nothing: if a file is malformed, PlanO stops with a message naming the file instead of starting with partial data.
+  - Loading is all-or-nothing: if a file is malformed or holds a value PlanO cannot read (an unknown status or role, an invalid date, a missing number), PlanO stops with a message naming the file instead of starting with partial or guessed data.
+  - Each save writes a temporary file and then moves it over the old one, so a crash during a save never leaves a half-written file. If a file cannot be written, PlanO shows an error instead of the success message.
 - **Scheduling Conflict Detection (`EventService`):**
   - Detects overlapping time windows at the same venue for non-cancelled events (`start1 < end2 && end1 > start2`).
   - Flags conflicts with exact conflicting event IDs, titles, and time intervals to prevent double-booking.
@@ -86,7 +87,9 @@ PlanO separates administrative governance from day-to-day event operations acros
 | Check-in | Opens on the event day and stays open after the event, so attendance can be recorded late. |
 | Reviews | 1 to 5 stars, for completed events only, by attendees who were checked in, within 90 days. Organizers cannot review their own events. |
 | Accounts | Sign-up creates Attendee accounts; Administrators promote Organizers. Deactivating a user cancels their registrations for events that have not started. An Organizer with events that have not ended cannot be deactivated. |
-| Edits | Every field is validated before anything is saved, so a rejected edit changes nothing. Capacity cannot drop below the number of confirmed attendees. |
+| Edits | Only Upcoming and Ongoing events can be edited; Completed and Cancelled events are kept as history. The start time cannot change once the event has started, and new times are refused if they would double-book anyone holding a seat. Every field is validated before anything is saved, so a rejected edit changes nothing. Capacity is 1 to 50,000 and cannot drop below the seats already taken. |
+| Categories | Category names are unique (ignoring letter case). A category that any event uses cannot be removed. Only Administrators manage categories. |
+| Saving | Every change is saved as soon as it is made. If a file cannot be written, PlanO says so instead of reporting success; the change stays in memory until PlanO closes. |
 | Reports | Attendance rate = checked-in / registered attendees at completed events. Cancelled events are left out of totals. Events that have ended but were not marked Completed are listed separately. |
 | Cancelling input | Typing `cancel`, `0` or `back` at a prompt that offers it returns to the menu without changing anything. |
 
@@ -98,14 +101,16 @@ PlanO separates administrative governance from day-to-day event operations acros
 - Every field in every model class is `private`. IDs, owners and creation times are `final` and have no setters (`User`, `Event`, `Registration`, `Feedback`; `Category` is fully immutable).
 - State changes only through methods that guard their own rules: `Event.updateDetails(...)`, `cancel()`, `changeStatus(...)`; `Registration.promote()`, `checkIn(...)`, `cancel()`; `Feedback.revise(...)`; `User.changeEmail(...)`, `changePassword(...)`, `deactivate()`, `promoteToOrganizer()`.
 - `User` never exposes its password: `passwordMatches(...)` checks a login attempt instead.
-- A new `Registration` can only start as Confirmed or Waitlisted. Saved records are restored through private constructors in each model's `fromMap(...)`.
+- A new `Registration` can only start as Confirmed or Waitlisted, and `Event.updateDetails(...)` refuses Completed and Cancelled events. Saved records are restored through private constructors in each model's `fromMap(...)`.
 - Repositories keep their collections `private`; `findAll()` returns a copy, never the internal map.
+- Report classes (`ReportService.AdminDashboardData`, `OrganizerDashboardData`, `EventPerformance`) have private fields and getters only; their maps and lists are read-only.
+- Utility classes (`ConsoleIO`, `InputValidator`, `SimpleJson`) are `final` with a private constructor, so they cannot be instantiated.
 
 ### Abstraction
 - `RoleMenu` (abstract) states what every role menu must provide (a title, its options, how to handle a choice) without saying how.
 - `EventManagerMenu` (abstract) adds the event screens Administrators and Organizers share, leaving `canManage(Event)` abstract.
 - The `EventSortStrategy` and `EventFilterStrategy` interfaces hide how sorting and filtering work from the services and menus.
-- Services hide the business rules from the menus, and repositories hide storage from the services.
+- Services hide the business rules from the menus, and repositories hide storage from the services. Menus never change data directly; every change goes through a service (`CategoryService` handles categories).
 
 ### Inheritance
 ```
@@ -116,7 +121,8 @@ RoleMenu (abstract)
     └── OrganizerMenu
 ```
 - Shared screens (browsing, the events table, sort choices, creating, editing, advancing and cancelling events, and the check-in roster) are written once in a parent class and reused by each role.
-- PlanO's own exceptions extend `RuntimeException`: `OperationCancelledException`, `InputClosedException` and `DataLoadException`.
+- PlanO's own exceptions extend `RuntimeException`: `OperationCancelledException`, `InputClosedException`, `DataLoadException` and `DataSaveException`.
+- Where one class only uses another, it holds it as a field instead of extending it (composition). `MenuController` creates each service once and passes the same objects to the services and menus that need them, so everything shares one `DataStore` and one `RegistrationService`.
 
 ### Polymorphism
 - `MenuController` keeps one `RoleMenu` per `Role` and calls `display()` on the logged-in user's menu without checking which role it is.
@@ -127,6 +133,7 @@ RoleMenu (abstract)
 ### Exception Handling
 - Typing `cancel`, `0` or `back` at a cancellable prompt throws `OperationCancelledException`. Each menu catches it in one place and returns to the menu, so no workflow has to check for a cancelled input.
 - `InputClosedException` ends the program cleanly when console input runs out, and `DataLoadException` stops startup when a data file is malformed.
+- `DataSaveException` is thrown when a file cannot be written. The menus catch it next to the cancel exception and show the error, so a failed save is never reported as a success. `Main` handles both data exceptions at startup with one multi-catch.
 - Model methods throw `IllegalStateException` for changes their rules do not allow; services turn these into the messages the user sees.
 
 ---
@@ -174,7 +181,8 @@ final-project-6-ooprog/
 │       │   ├── Event.java
 │       │   ├── RegistrationStatus.java
 │       │   ├── Registration.java
-│       │   └── Feedback.java
+│       │   ├── Feedback.java
+│       │   └── SavedFields.java  # Strict reading of saved values for the models
 │       ├── strategy/             # Strategy Pattern implementations
 │       │   ├── EventSortStrategy.java
 │       │   ├── SortByDateAscStrategy.java
@@ -184,10 +192,11 @@ final-project-6-ooprog/
 │       │   ├── SortByCapacityStrategy.java
 │       │   ├── EventFilterCriteria.java
 │       │   ├── EventFilterStrategy.java
-│       │   └── CompositeEventFilterStrategy.java
+│       │   └── MultiCriteriaFilterStrategy.java
 │       ├── repository/           # Data access & persistence layer
 │       │   ├── DataStore.java
 │       │   ├── DataLoadException.java
+│       │   ├── DataSaveException.java
 │       │   ├── UserRepository.java
 │       │   ├── CategoryRepository.java
 │       │   ├── EventRepository.java
@@ -199,7 +208,9 @@ final-project-6-ooprog/
 │       │   ├── EventService.java
 │       │   ├── RegistrationService.java
 │       │   ├── FeedbackService.java
-│       │   └── ReportService.java
+│       │   ├── CategoryService.java
+│       │   ├── ReportService.java
+│       │   └── OperationResult.java  # Success flag + message returned by several services
 │       ├── util/                 # Terminal UI & parsing utilities
 │       │   ├── ConsoleIO.java
 │       │   ├── OperationCancelledException.java
@@ -216,7 +227,7 @@ final-project-6-ooprog/
 │           └── AttendeeMenu.java
 └── test/
     └── plano/
-        └── PlanOTest.java        # Automated test suite (116 checks)
+        └── PlanOTest.java        # Automated test suite (135 checks)
 ```
 
 ---
@@ -275,4 +286,5 @@ The tests use their own `test_data/` folder and delete it afterwards; your `data
 
 - **Keep the code Java 8 compatible.** On JDK 9 or newer, the run scripts compile with `--release 8`, which rejects anything Java 8 does not have (for example `String.isBlank()`, `Optional.isEmpty()`, `var`, or `case X ->` switches). When compiling by hand on a newer JDK, add `--release 8` yourself.
 - **Keep source files ASCII-only.** Java 8 on Windows prints characters such as box-drawing lines, stars, or emoji as `?`.
+- **PlanO is single-threaded** (one user at one console), so the code uses no locks or `synchronized` methods. Making it safe for several threads would need one lock around each whole service operation, not per-method locks.
 - `data/`, `bin/` and `test_data/` are ignored by git.

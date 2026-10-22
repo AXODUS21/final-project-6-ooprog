@@ -29,8 +29,9 @@ public class RegistrationService {
         return dataStore.getRegistrationRepository().findByUser(userId);
     }
 
-    public int getConfirmedCount(String eventId) {
-        return dataStore.getRegistrationRepository().countConfirmedByEvent(eventId);
+    /** Seats taken at the event: confirmed and checked-in attendees. */
+    public int getSeatsTaken(String eventId) {
+        return dataStore.getRegistrationRepository().countSeatsTakenByEvent(eventId);
     }
 
     public int getWaitlistCount(String eventId) {
@@ -51,7 +52,7 @@ public class RegistrationService {
      * Registers a user for an event, automatically placing them in Confirmed status
      * or Waitlisted status depending on capacity limits.
      */
-    public synchronized RegistrationResult register(User user, String eventId) {
+    public RegistrationResult register(User user, String eventId) {
         if (user == null || !user.isActive()) {
             return new RegistrationResult(false, "User account is inactive or invalid.", null, null);
         }
@@ -101,13 +102,13 @@ public class RegistrationService {
         }
 
         // Check Capacity
-        int confirmedCount = dataStore.getRegistrationRepository().countConfirmedByEvent(eventId);
+        int seatsTaken = dataStore.getRegistrationRepository().countSeatsTakenByEvent(eventId);
         RegistrationStatus assignedStatus;
         String message;
 
-        if (confirmedCount < event.getCapacity()) {
+        if (seatsTaken < event.getCapacity()) {
             assignedStatus = RegistrationStatus.CONFIRMED;
-            int remaining = event.getCapacity() - (confirmedCount + 1);
+            int remaining = event.getCapacity() - (seatsTaken + 1);
             message = "Registration successful! You have a CONFIRMED spot for '" + event.getTitle() + "'." +
                     (remaining > 0 ? " (" + remaining + " spots remaining)" : " (Event is now at full capacity)");
         } else {
@@ -135,7 +136,7 @@ public class RegistrationService {
      * Cancels an existing registration. If it held a seat, the seat is offered
      * to the waitlist in FIFO order.
      */
-    public synchronized CancellationResult cancelRegistration(User requestingUser, String registrationId) {
+    public CancellationResult cancelRegistration(User requestingUser, String registrationId) {
         Optional<Registration> regOpt = dataStore.getRegistrationRepository().findById(registrationId);
         if (!regOpt.isPresent()) {
             return new CancellationResult(false, "Registration record not found.", null, null);
@@ -168,7 +169,7 @@ public class RegistrationService {
 
         List<Registration> promoted = freedSeat && eventOpt.isPresent()
                 ? fillOpenSpots(eventOpt.get())
-                : Collections.<Registration>emptyList();
+                : Collections.emptyList();
 
         dataStore.saveRegistrations();
 
@@ -182,7 +183,7 @@ public class RegistrationService {
     /**
      * Checks in an attendee. Check-in opens on the event day.
      */
-    public synchronized CheckInResult checkInAttendee(User requestingUser, String eventId, String attendeeUserId) {
+    public CheckInResult checkInAttendee(User requestingUser, String eventId, String attendeeUserId) {
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
         if (!eventOpt.isPresent()) {
             return new CheckInResult(false, "Event not found.", null);
@@ -238,7 +239,7 @@ public class RegistrationService {
             return promoted;
         }
 
-        int openSeats = event.getCapacity() - dataStore.getRegistrationRepository().countConfirmedByEvent(event.getEventId());
+        int openSeats = event.getCapacity() - dataStore.getRegistrationRepository().countSeatsTakenByEvent(event.getEventId());
         for (Registration waiting : dataStore.getRegistrationRepository().findWaitlistedByEvent(event.getEventId())) {
             if (openSeats <= 0) {
                 break;
@@ -315,18 +316,36 @@ public class RegistrationService {
         return new ReleaseResult(released, promoted);
     }
 
+    /**
+     * Counts the attendees holding a seat at the event who already hold a seat at another event
+     * that would overlap it if it ran from start to end. Used before an event is rescheduled.
+     */
+    int countSeatHolderClashes(Event event, LocalDateTime start, LocalDateTime end) {
+        int clashes = 0;
+        for (Registration seat : dataStore.getRegistrationRepository().findByEvent(event.getEventId())) {
+            if (seat.holdsSeat() && findScheduleConflict(seat.getUserId(), event.getEventId(), start, end) != null) {
+                clashes++;
+            }
+        }
+        return clashes;
+    }
+
     /** Returns another event the user holds a seat for that overlaps the given event, or null. */
     private Event findScheduleConflict(String userId, Event event) {
+        return findScheduleConflict(userId, event.getEventId(), event.getStartDateTime(), event.getEndDateTime());
+    }
+
+    /** Returns an event other than eventId that the user holds a seat for and that overlaps start to end, or null. */
+    private Event findScheduleConflict(String userId, String eventId, LocalDateTime start, LocalDateTime end) {
         for (Registration ur : dataStore.getRegistrationRepository().findByUser(userId)) {
-            if (!ur.holdsSeat()) {
+            if (!ur.holdsSeat() || ur.getEventId().equals(eventId)) {
                 continue;
             }
             Optional<Event> otherOpt = dataStore.getEventRepository().findById(ur.getEventId());
             if (otherOpt.isPresent()) {
                 Event other = otherOpt.get();
-                if (!other.isCancelled() && !other.getEventId().equals(event.getEventId()) &&
-                        InputValidator.doIntervalsOverlap(event.getStartDateTime(), event.getEndDateTime(),
-                                other.getStartDateTime(), other.getEndDateTime())) {
+                if (!other.isCancelled() &&
+                        InputValidator.doIntervalsOverlap(start, end, other.getStartDateTime(), other.getEndDateTime())) {
                     return other;
                 }
             }

@@ -33,7 +33,7 @@ public class FeedbackService {
     /**
      * Submits or updates feedback for a completed event.
      */
-    public synchronized FeedbackResult submitFeedback(User attendee, String eventId, int rating, String comment) {
+    public FeedbackResult submitFeedback(User attendee, String eventId, int rating, String comment) {
         if (attendee == null) {
             return new FeedbackResult(false, "Invalid user session.", null);
         }

@@ -3,6 +3,7 @@ package plano.util;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Locale;
 import java.util.Scanner;
 
 /**
@@ -11,8 +12,9 @@ import java.util.Scanner;
  *
  * Prompts that accept 'cancel', '0' or 'back' throw {@link OperationCancelledException};
  * the menus catch it and return the user to the menu.
+ * A utility class: it only has static members and cannot be instantiated.
  */
-public class ConsoleIO {
+public final class ConsoleIO {
     // ANSI color codes
     public static final String RESET = "\u001B[0m";
     public static final String BOLD = "\u001B[1m";
@@ -27,7 +29,11 @@ public class ConsoleIO {
     public static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     public static final DateTimeFormatter DISPLAY_FORMATTER = DateTimeFormatter.ofPattern("MMM dd, yyyy 'at' hh:mm a");
 
+    /** The one Scanner for System.in. A second one would buffer and swallow lines meant for this one. */
     private static final Scanner scanner = new Scanner(System.in);
+
+    private ConsoleIO() {
+    }
 
     /** Repeats a string, e.g. repeat("=", 3) returns "===". */
     public static String repeat(String text, int count) {
@@ -163,8 +169,9 @@ public class ConsoleIO {
         }
     }
 
+    /** Reads an event capacity: a whole number from 1 to {@link InputValidator#MAX_CAPACITY}. */
     public static int readCancellablePositiveInt(String prompt) {
-        return readCancellablePositiveInt(prompt, 50000);
+        return readCancellablePositiveInt(prompt, InputValidator.MAX_CAPACITY);
     }
 
     /**
@@ -194,7 +201,7 @@ public class ConsoleIO {
                     continue;
                 }
                 if (val > maxLimit) {
-                    printError("Value exceeds maximum allowable limit (" + maxLimit + ").");
+                    printError(String.format(Locale.US, "Value exceeds maximum allowable limit (%,d).", maxLimit));
                     continue;
                 }
                 return val;
@@ -224,8 +231,8 @@ public class ConsoleIO {
                     printError("Value must be greater than 0.");
                     continue;
                 }
-                if (val > 50000) {
-                    printError("Value exceeds maximum allowable limit (50,000).");
+                if (val > InputValidator.MAX_CAPACITY) {
+                    printError(String.format(Locale.US, "Value exceeds maximum allowable limit (%,d).", InputValidator.MAX_CAPACITY));
                     continue;
                 }
                 return val;

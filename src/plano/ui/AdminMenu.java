@@ -5,7 +5,6 @@ import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.EventFilterCriteria;
 import plano.util.ConsoleIO;
-import plano.util.InputValidator;
 import plano.util.TableRenderer;
 
 import java.util.List;
@@ -19,14 +18,17 @@ import java.util.Optional;
 public class AdminMenu extends EventManagerMenu {
     private final UserService userService;
     private final ReportService reportService;
+    private final CategoryService categoryService;
     private final EventFilterCriteria activeFilterCriteria = new EventFilterCriteria();
 
     public AdminMenu(DataStore dataStore, AuthService authService, UserService userService,
                      EventService eventService, RegistrationService registrationService,
-                     FeedbackService feedbackService, ReportService reportService) {
+                     FeedbackService feedbackService, ReportService reportService,
+                     CategoryService categoryService) {
         super(dataStore, authService, eventService, registrationService, feedbackService);
         this.userService = userService;
         this.reportService = reportService;
+        this.categoryService = categoryService;
     }
 
     @Override
@@ -209,15 +211,15 @@ public class AdminMenu extends EventManagerMenu {
         int ch = ConsoleIO.readInt("Option", 0, 3);
         if (ch == 1) {
             String uid = ConsoleIO.readUserId("Enter User ID to deactivate (e.g. USR-1004)");
-            UserService.OperationResult res = userService.deactivateUser(authService.getCurrentUser(), uid);
+            OperationResult res = userService.deactivateUser(authService.getCurrentUser(), uid);
             printResult(res.success, res.message);
         } else if (ch == 2) {
             String uid = ConsoleIO.readUserId("Enter User ID to reactivate (e.g. USR-1004)");
-            UserService.OperationResult res = userService.reactivateUser(authService.getCurrentUser(), uid);
+            OperationResult res = userService.reactivateUser(authService.getCurrentUser(), uid);
             printResult(res.success, res.message);
         } else if (ch == 3) {
             String uid = ConsoleIO.readUserId("Enter User ID to promote to Organizer (e.g. USR-1004)");
-            UserService.OperationResult res = userService.promoteToOrganizer(authService.getCurrentUser(), uid);
+            OperationResult res = userService.promoteToOrganizer(authService.getCurrentUser(), uid);
             printResult(res.success, res.message);
         }
         ConsoleIO.pause();
@@ -225,7 +227,7 @@ public class AdminMenu extends EventManagerMenu {
 
     private void manageCategories() {
         ConsoleIO.printSection("Event Categories");
-        List<Category> categories = dataStore.getCategoryRepository().findAll();
+        List<Category> categories = categoryService.getAllCategories();
 
         TableRenderer table = new TableRenderer("Category ID", "Name", "Description");
         for (Category c : categories) {
@@ -240,16 +242,13 @@ public class AdminMenu extends EventManagerMenu {
         int ch = ConsoleIO.readInt("Option", 0, 2);
         if (ch == 1) {
             String name = ConsoleIO.readNonEmptyString("Category Name");
-            if (!InputValidator.isValidCategoryName(name)) {
-                ConsoleIO.printError("Category name must be between 2 and 50 characters long.");
-            } else if (dataStore.getCategoryRepository().existsByName(name.trim())) {
-                ConsoleIO.printError("Category '" + name.trim() + "' already exists.");
+            OperationResult nameCheck = categoryService.checkNewCategoryName(name);
+            if (!nameCheck.success) {
+                ConsoleIO.printError(nameCheck.message);
             } else {
                 String desc = ConsoleIO.readString("Category Description");
-                String id = dataStore.nextCategoryId();
-                dataStore.getCategoryRepository().add(new Category(id, name.trim(), desc));
-                dataStore.saveCategories();
-                ConsoleIO.printSuccess("Category '" + name.trim() + "' added successfully.");
+                OperationResult res = categoryService.addCategory(authService.getCurrentUser(), name, desc);
+                printResult(res.success, res.message);
             }
         } else if (ch == 2) {
             if (categories.isEmpty()) {
@@ -258,23 +257,8 @@ public class AdminMenu extends EventManagerMenu {
                 return;
             }
             String id = ConsoleIO.readCategoryId("Enter Category ID to remove (e.g. CAT-101)");
-            Optional<Category> catOpt = dataStore.getCategoryRepository().findById(id);
-            if (!catOpt.isPresent()) {
-                ConsoleIO.printError("Category not found with ID: " + id);
-            } else {
-                Category cat = catOpt.get();
-                long assignedEventsCount = dataStore.getEventRepository().findAll().stream()
-                        .filter(e -> cat.getName().equalsIgnoreCase(e.getCategory()))
-                        .count();
-                if (assignedEventsCount > 0) {
-                    ConsoleIO.printError("Cannot delete category '" + cat.getName() + "': " +
-                            assignedEventsCount + " event(s) are currently assigned to it.");
-                } else {
-                    dataStore.getCategoryRepository().delete(id);
-                    dataStore.saveCategories();
-                    ConsoleIO.printSuccess("Category '" + cat.getName() + "' removed successfully.");
-                }
-            }
+            OperationResult res = categoryService.removeCategory(authService.getCurrentUser(), id);
+            printResult(res.success, res.message);
         }
         ConsoleIO.pause();
     }
@@ -285,25 +269,26 @@ public class AdminMenu extends EventManagerMenu {
 
         System.out.println(ConsoleIO.BOLD + "SYSTEM METRICS OVERVIEW" + ConsoleIO.RESET);
         System.out.printf("  Total Events: %d  (Upcoming: %d | Ongoing: %d | Completed: %d | Cancelled: %d | Ended, not marked completed: %d)\n",
-                dash.totalEvents, dash.upcomingEvents, dash.ongoingEvents, dash.completedEvents,
-                dash.cancelledEvents, dash.awaitingCompletionEvents);
+                dash.getTotalEvents(), dash.getUpcomingEvents(), dash.getOngoingEvents(), dash.getCompletedEvents(),
+                dash.getCancelledEvents(), dash.getAwaitingCompletionEvents());
         System.out.printf("  Registered Users: %d  (Organizers: %d | Attendees: %d)\n",
-                dash.totalUsers, dash.totalOrganizers, dash.totalAttendees);
+                dash.getTotalUsers(), dash.getTotalOrganizers(), dash.getTotalAttendees());
         System.out.printf("  Total Active Registrations: %d  (Confirmed: %d | Checked-in: %d | Waitlisted: %d)\n",
-                dash.totalRegistrations, dash.confirmedRegistrations, dash.checkedInAttendees, dash.waitlistedRegistrations);
+                dash.getTotalRegistrations(), dash.getConfirmedRegistrations(), dash.getCheckedInAttendees(),
+                dash.getWaitlistedRegistrations());
         System.out.printf("  Attendance Rate (completed events): %.1f%%  (%d of %d registered attendees checked in)\n\n",
-                dash.overallAttendanceRate, dash.completedEventCheckIns, dash.completedEventRegistrations);
+                dash.getOverallAttendanceRate(), dash.getCompletedEventCheckIns(), dash.getCompletedEventRegistrations());
 
         System.out.println(ConsoleIO.BOLD + "CATEGORY POPULARITY (Seats taken, cancelled events excluded)" + ConsoleIO.RESET);
         TableRenderer catTable = new TableRenderer("Category", "Registrations Hosted");
-        for (Map.Entry<String, Integer> entry : dash.categoryPopularity.entrySet()) {
+        for (Map.Entry<String, Integer> entry : dash.getCategoryPopularity().entrySet()) {
             catTable.addRow(entry.getKey(), String.valueOf(entry.getValue()));
         }
         catTable.render();
 
         System.out.println(ConsoleIO.BOLD + "ORGANIZER ACTIVITY LEADERBOARD" + ConsoleIO.RESET);
         TableRenderer orgTable = new TableRenderer("Organizer", "Username", "Events Created", "Total Registrations", "Checked-in Attendees");
-        for (ReportService.OrganizerStats s : dash.organizerStats) {
+        for (ReportService.OrganizerStats s : dash.getOrganizerStats()) {
             orgTable.addRow(s.getFullName(), s.getUsername(), String.valueOf(s.getEventCount()),
                     String.valueOf(s.getTotalRegistrations()), String.valueOf(s.getTotalCheckedIn()));
         }
@@ -314,19 +299,21 @@ public class AdminMenu extends EventManagerMenu {
 
     private void configureSortAndFilter() {
         printSortOptions();
-        System.out.println("6. Set Keyword Search / Category Filter");
-        System.out.println("7. Clear All Active Filters");
+        int searchOption = sortOptionCount() + 1;
+        int clearOption = searchOption + 1;
+        System.out.println(searchOption + ". Set Keyword Search / Category Filter");
+        System.out.println(clearOption + ". Clear All Active Filters");
         System.out.println("0. Back");
 
-        int choice = ConsoleIO.readInt("Choose option", 0, 7);
+        int choice = ConsoleIO.readInt("Choose option", 0, clearOption);
         if (!applySortChoice(choice)) {
-            if (choice == 6) {
+            if (choice == searchOption) {
                 String kw = ConsoleIO.readString("Search keyword (title/description/venue, or leave blank)");
                 activeFilterCriteria.setTextQuery(kw);
                 String cat = ConsoleIO.readString("Category filter (or leave blank)");
                 activeFilterCriteria.setCategory(cat);
                 ConsoleIO.printSuccess("Filters applied.");
-            } else if (choice == 7) {
+            } else if (choice == clearOption) {
                 activeFilterCriteria.reset();
                 ConsoleIO.printSuccess("All filters cleared.");
             }

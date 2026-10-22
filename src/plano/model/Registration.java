@@ -144,28 +144,26 @@ public class Registration {
         map.put("registrationId", registrationId);
         map.put("eventId", eventId);
         map.put("userId", userId);
-        map.put("status", status != null ? status.name() : RegistrationStatus.CONFIRMED.name());
-        map.put("registeredAt", registeredAt != null ? registeredAt.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
-        map.put("checkedInAt", checkedInAt != null ? checkedInAt.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
+        map.put("status", status.name());
+        map.put("registeredAt", SavedFields.formatDate(registeredAt));
+        map.put("checkedInAt", SavedFields.formatDate(checkedInAt));
         return map;
     }
 
+    /**
+     * Restores a saved registration.
+     *
+     * @throws RuntimeException if the status or a date cannot be read
+     */
     public static Registration fromMap(Map<String, Object> map) {
         if (map == null) return null;
-        LocalDateTime registeredAt = parseDateTime((String) map.get("registeredAt"));
+        LocalDateTime registeredAt = SavedFields.parseDate((String) map.get("registeredAt"));
         return new Registration(
                 (String) map.get("registrationId"),
                 (String) map.get("eventId"),
                 (String) map.get("userId"),
                 RegistrationStatus.fromString((String) map.get("status")),
                 registeredAt != null ? registeredAt : LocalDateTime.now(),
-                parseDateTime((String) map.get("checkedInAt")));
-    }
-
-    private static LocalDateTime parseDateTime(String text) {
-        if (text == null || text.trim().isEmpty()) {
-            return null;
-        }
-        return LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                SavedFields.parseDate((String) map.get("checkedInAt")));
     }
 }

@@ -3,6 +3,7 @@ package plano.ui;
 import plano.model.Event;
 import plano.model.Role;
 import plano.model.User;
+import plano.repository.DataSaveException;
 import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.EventSortStrategy;
@@ -28,17 +29,22 @@ public class MenuController {
     /** One menu per role; logging in opens the menu for the user's role. */
     private final Map<Role, RoleMenu> menusByRole = new EnumMap<>(Role.class);
 
+    /**
+     * Creates every service once and passes the same objects to the menus that need them
+     * (dependency injection), so all menus share one RegistrationService and one DataStore.
+     */
     public MenuController(DataStore dataStore) {
         this.dataStore = dataStore;
         this.authService = new AuthService(dataStore);
-        this.eventService = new EventService(dataStore);
         this.registrationService = new RegistrationService(dataStore);
-        UserService userService = new UserService(dataStore);
+        this.eventService = new EventService(dataStore, registrationService);
+        UserService userService = new UserService(dataStore, registrationService);
         FeedbackService feedbackService = new FeedbackService(dataStore);
         ReportService reportService = new ReportService(dataStore);
+        CategoryService categoryService = new CategoryService(dataStore);
 
         menusByRole.put(Role.ADMIN, new AdminMenu(dataStore, authService, userService, eventService,
-                registrationService, feedbackService, reportService));
+                registrationService, feedbackService, reportService, categoryService));
         menusByRole.put(Role.ORGANIZER, new OrganizerMenu(dataStore, authService, eventService,
                 registrationService, feedbackService, reportService));
         menusByRole.put(Role.ATTENDEE, new AttendeeMenu(dataStore, authService, userService, eventService,
@@ -76,15 +82,18 @@ public class MenuController {
                         displayDemoCredentials();
                         break;
                     case 0:
+                        running = false; // exit even if the final save below fails
                         ConsoleIO.printSuccess("Thank you for using PlanO. Goodbye!");
                         dataStore.saveAll();
-                        running = false;
                         break;
                     default:
                         break;
                 }
             } catch (OperationCancelledException cancelled) {
                 ConsoleIO.printWarning("Operation cancelled. Returning to the main menu.");
+                ConsoleIO.pause();
+            } catch (DataSaveException saveFailed) {
+                ConsoleIO.printError(saveFailed.getMessage());
                 ConsoleIO.pause();
             }
         }
@@ -154,7 +163,7 @@ public class MenuController {
         );
 
         for (Event e : events) {
-            int confirmed = registrationService.getConfirmedCount(e.getEventId());
+            int confirmed = registrationService.getSeatsTaken(e.getEventId());
             String startStr = e.getStartDateTime() != null ? e.getStartDateTime().format(ConsoleIO.DATE_TIME_FORMATTER) : "N/A";
             table.addRow(
                     e.getEventId(),

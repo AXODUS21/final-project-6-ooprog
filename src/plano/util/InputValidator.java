@@ -6,8 +6,9 @@ import java.util.regex.Pattern;
 /**
  * Common input validation routines for strings, emails, usernames, dates,
  * numerical bounds, and scheduling intervals.
+ * A utility class: it only has static members and cannot be instantiated.
  */
-public class InputValidator {
+public final class InputValidator {
 
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
             "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
@@ -26,10 +27,13 @@ public class InputValidator {
     private static final Pattern REGISTRATION_ID_PATTERN = Pattern.compile("^REG-\\d+$");
     private static final Pattern CATEGORY_ID_PATTERN = Pattern.compile("^CAT-\\d+$");
 
-    private static final Pattern INTEGER_PATTERN = Pattern.compile("^0$|^[1-9]\\d*$");
-    private static final Pattern POSITIVE_INTEGER_PATTERN = Pattern.compile("^[1-9]\\d*$");
-
     public static final int MAX_EVENT_HORIZON_YEARS = 2;
+
+    /** The largest number of attendees an event can hold. */
+    public static final int MAX_CAPACITY = 50000;
+
+    private InputValidator() {
+    }
 
     public static boolean isValidEmail(String email) {
         if (email == null) return false;
@@ -85,7 +89,7 @@ public class InputValidator {
     }
 
     public static boolean isValidCapacity(int capacity) {
-        return capacity >= 1 && capacity <= 50000;
+        return capacity >= 1 && capacity <= MAX_CAPACITY;
     }
 
     public static boolean isValidEventId(String id) {
@@ -118,16 +122,6 @@ public class InputValidator {
     public static boolean hasDecimalOrTrailingZeroes(String str) {
         if (str == null) return false;
         return str.contains(".");
-    }
-
-    public static boolean isValidIntegerFormat(String str) {
-        if (str == null) return false;
-        return INTEGER_PATTERN.matcher(str.trim()).matches();
-    }
-
-    public static boolean isValidPositiveIntegerFormat(String str) {
-        if (str == null) return false;
-        return POSITIVE_INTEGER_PATTERN.matcher(str.trim()).matches();
     }
 
     public static boolean isNotEmpty(String str) {

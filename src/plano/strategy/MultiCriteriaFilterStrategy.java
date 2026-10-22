@@ -7,15 +7,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Composite filtering strategy that applies text search, category,
- * location/venue, date range, and capacity availability constraints.
+ * Filtering strategy that checks every criterion that is set (text search, category,
+ * venue, date range, status and open seats); an event is kept only if it passes all of them.
  */
-public class CompositeEventFilterStrategy implements EventFilterStrategy {
-
-    @Override
-    public String getName() {
-        return "Multi-Criteria Filter";
-    }
+public class MultiCriteriaFilterStrategy implements EventFilterStrategy {
 
     @Override
     public List<Event> filter(List<Event> events, EventFilterCriteria criteria, RegistrationRepository regRepo) {
@@ -69,10 +64,9 @@ public class CompositeEventFilterStrategy implements EventFilterStrategy {
                 }
             }
 
-            // Available spots only
+            // Open seats only
             if (criteria.isAvailableOnly() && regRepo != null) {
-                int confirmed = regRepo.countConfirmedByEvent(ev.getEventId());
-                if (confirmed >= ev.getCapacity()) {
+                if (regRepo.countSeatsTakenByEvent(ev.getEventId()) >= ev.getCapacity()) {
                     continue;
                 }
             }

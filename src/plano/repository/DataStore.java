@@ -6,9 +6,13 @@ import plano.util.SimpleJson;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -28,12 +32,9 @@ public class DataStore {
     private final RegistrationRepository registrationRepository = new RegistrationRepository();
     private final FeedbackRepository feedbackRepository = new FeedbackRepository();
 
-    public DataStore() {
-        this("data");
-    }
-
     /**
      * @throws DataLoadException if an existing data file cannot be read
+     * @throws DataSaveException if the demo data cannot be written on the first run
      */
     public DataStore(String dataDir) {
         this.dataDir = dataDir;
@@ -61,25 +62,27 @@ public class DataStore {
     }
 
     // ==================== ID GENERATORS ====================
-    // Each new ID is one above the highest existing number, so an ID is never reused after a deletion.
+    // Each new ID is one above the highest number in use, so it never matches an existing record.
+    // Categories are the only records that can be deleted. Deleting the newest category frees its
+    // number for the next one, which is safe because events refer to categories by name, not by ID.
 
-    public synchronized String nextUserId() {
+    public String nextUserId() {
         return nextId("USR-", 1000, userRepository.findAll().stream().map(User::getUserId).collect(Collectors.toList()));
     }
 
-    public synchronized String nextCategoryId() {
+    public String nextCategoryId() {
         return nextId("CAT-", 100, categoryRepository.findAll().stream().map(Category::getCategoryId).collect(Collectors.toList()));
     }
 
-    public synchronized String nextEventId() {
+    public String nextEventId() {
         return nextId("EVT-", 1000, eventRepository.findAll().stream().map(Event::getEventId).collect(Collectors.toList()));
     }
 
-    public synchronized String nextRegistrationId() {
+    public String nextRegistrationId() {
         return nextId("REG-", 1000, registrationRepository.findAll().stream().map(Registration::getRegistrationId).collect(Collectors.toList()));
     }
 
-    public synchronized String nextFeedbackId() {
+    public String nextFeedbackId() {
         return nextId("FB-", 1000, feedbackRepository.findAll().stream().map(Feedback::getFeedbackId).collect(Collectors.toList()));
     }
 
@@ -115,7 +118,9 @@ public class DataStore {
         }
     }
 
-    public synchronized void saveAll() {
+    // Every save method writes the whole file and throws DataSaveException if it cannot.
+
+    public void saveAll() {
         saveUsers();
         saveCategories();
         saveEvents();
@@ -123,7 +128,7 @@ public class DataStore {
         saveFeedbacks();
     }
 
-    public synchronized void saveUsers() {
+    public void saveUsers() {
         List<Map<String, Object>> list = new ArrayList<>();
         for (User u : userRepository.findAll()) {
             list.add(u.toMap());
@@ -131,7 +136,7 @@ public class DataStore {
         writeFile("users.json", SimpleJson.serialize(list));
     }
 
-    public synchronized void saveCategories() {
+    public void saveCategories() {
         List<Map<String, Object>> list = new ArrayList<>();
         for (Category c : categoryRepository.findAll()) {
             list.add(c.toMap());
@@ -139,7 +144,7 @@ public class DataStore {
         writeFile("categories.json", SimpleJson.serialize(list));
     }
 
-    public synchronized void saveEvents() {
+    public void saveEvents() {
         List<Map<String, Object>> list = new ArrayList<>();
         for (Event e : eventRepository.findAll()) {
             list.add(e.toMap());
@@ -147,7 +152,7 @@ public class DataStore {
         writeFile("events.json", SimpleJson.serialize(list));
     }
 
-    public synchronized void saveRegistrations() {
+    public void saveRegistrations() {
         List<Map<String, Object>> list = new ArrayList<>();
         for (Registration r : registrationRepository.findAll()) {
             list.add(r.toMap());
@@ -155,7 +160,7 @@ public class DataStore {
         writeFile("registrations.json", SimpleJson.serialize(list));
     }
 
-    public synchronized void saveFeedbacks() {
+    public void saveFeedbacks() {
         List<Map<String, Object>> list = new ArrayList<>();
         for (Feedback fb : feedbackRepository.findAll()) {
             list.add(fb.toMap());
@@ -226,12 +231,29 @@ public class DataStore {
         return records;
     }
 
+    /**
+     * Writes the whole file to a temporary file in the same folder, then moves it over the old one,
+     * so a crash in the middle of a save can never leave a half-written data file.
+     *
+     * @throws DataSaveException if the file cannot be written
+     */
     private void writeFile(String filename, String content) {
+        Path target = Paths.get(dataDir, filename);
+        Path temp = Paths.get(dataDir, filename + ".tmp");
         try {
-            Path path = Paths.get(dataDir, filename);
-            Files.write(path, content.getBytes(StandardCharsets.UTF_8));
+            Files.write(temp, content.getBytes(StandardCharsets.UTF_8));
+            try {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
-            System.err.println("Failed to write to file " + filename + ": " + e.getMessage());
+            try {
+                Files.deleteIfExists(temp);
+            } catch (IOException ignored) {
+                // The save has already failed; that is the error to report.
+            }
+            throw new DataSaveException(target.toString(), describe(e));
         }
     }
 
@@ -243,8 +265,19 @@ public class DataStore {
         try {
             return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new DataLoadException(path.toString(), "the file could not be read (" + e.getMessage() + ")");
+            throw new DataLoadException(path.toString(), "the file could not be read (" + describe(e) + ")");
         }
+    }
+
+    /** A short reason for a file error, e.g. "access was denied". */
+    private static String describe(IOException e) {
+        if (e instanceof AccessDeniedException) {
+            return "access was denied";
+        }
+        if (e instanceof FileSystemException && ((FileSystemException) e).getReason() != null) {
+            return ((FileSystemException) e).getReason();
+        }
+        return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
     }
 
     // ==================== SEED DATA ====================

@@ -148,11 +148,26 @@ public class Event {
     // ==================== BEHAVIOR ====================
 
     /**
+     * Completed and cancelled events are kept as history, so only Upcoming and
+     * Ongoing events can be edited.
+     *
+     * @throws IllegalStateException with a user-facing reason if this event can no longer be edited
+     */
+    public void checkEditable() {
+        if (isCompleted() || isCancelled()) {
+            throw new IllegalStateException(status.getDisplayName() + " events cannot be edited.");
+        }
+    }
+
+    /**
      * Replaces all editable details in one step. Callers validate the new values
      * first (see EventService), so an event is never left half-edited.
+     *
+     * @throws IllegalStateException if the event is Completed or Cancelled
      */
     public void updateDetails(String title, String description, String category, String venue,
                               LocalDateTime startDateTime, LocalDateTime endDateTime, int capacity) {
+        checkEditable();
         this.title = title;
         this.description = description;
         this.category = category;
@@ -229,26 +244,22 @@ public class Event {
         map.put("organizerId", organizerId);
         map.put("category", category);
         map.put("venue", venue);
-        map.put("startDateTime", startDateTime != null ? startDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
-        map.put("endDateTime", endDateTime != null ? endDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
+        map.put("startDateTime", SavedFields.formatDate(startDateTime));
+        map.put("endDateTime", SavedFields.formatDate(endDateTime));
         map.put("capacity", capacity);
-        map.put("status", status != null ? status.name() : EventStatus.UPCOMING.name());
-        map.put("createdAt", createdAt != null ? createdAt.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
+        map.put("status", status.name());
+        map.put("createdAt", SavedFields.formatDate(createdAt));
         return map;
     }
 
+    /**
+     * Restores a saved event.
+     *
+     * @throws RuntimeException if the capacity, status or a date cannot be read
+     */
     public static Event fromMap(Map<String, Object> map) {
         if (map == null) return null;
-
-        int capacity = 0;
-        Object capObj = map.get("capacity");
-        if (capObj instanceof Number) {
-            capacity = ((Number) capObj).intValue();
-        } else if (capObj != null) {
-            capacity = Integer.parseInt(capObj.toString());
-        }
-
-        LocalDateTime createdAt = parseDateTime((String) map.get("createdAt"));
+        LocalDateTime createdAt = SavedFields.parseDate((String) map.get("createdAt"));
         return new Event(
                 (String) map.get("eventId"),
                 (String) map.get("title"),
@@ -256,17 +267,10 @@ public class Event {
                 (String) map.get("organizerId"),
                 (String) map.get("category"),
                 (String) map.get("venue"),
-                parseDateTime((String) map.get("startDateTime")),
-                parseDateTime((String) map.get("endDateTime")),
-                capacity,
+                SavedFields.parseDate((String) map.get("startDateTime")),
+                SavedFields.parseDate((String) map.get("endDateTime")),
+                SavedFields.requireInt(map, "capacity"),
                 EventStatus.fromString((String) map.get("status")),
                 createdAt != null ? createdAt : LocalDateTime.now());
-    }
-
-    private static LocalDateTime parseDateTime(String text) {
-        if (text == null || text.trim().isEmpty()) {
-            return null;
-        }
-        return LocalDateTime.parse(text, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 }

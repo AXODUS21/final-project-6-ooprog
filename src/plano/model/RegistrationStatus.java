@@ -19,12 +19,19 @@ public enum RegistrationStatus {
         return displayName;
     }
 
+    /**
+     * Reads a saved status name, in any letter case.
+     *
+     * @throws IllegalArgumentException if the name is missing or is not a registration status
+     */
     public static RegistrationStatus fromString(String val) {
-        if (val == null) return CONFIRMED;
-        try {
-            return RegistrationStatus.valueOf(val.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return CONFIRMED;
+        if (val != null) {
+            for (RegistrationStatus status : values()) {
+                if (status.name().equalsIgnoreCase(val.trim())) {
+                    return status;
+                }
+            }
         }
+        throw new IllegalArgumentException("unknown registration status '" + val + "'");
     }
 }

@@ -2,15 +2,20 @@ package plano;
 
 import plano.model.*;
 import plano.repository.DataLoadException;
+import plano.repository.DataSaveException;
 import plano.repository.DataStore;
 import plano.service.*;
 import plano.strategy.*;
 import plano.util.ConsoleIO;
 import plano.util.InputValidator;
+import plano.util.SimpleJson;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,9 +44,9 @@ public class PlanOTest {
 
         DataStore dataStore = new DataStore(testDataDir);
         AuthService authService = new AuthService(dataStore);
-        UserService userService = new UserService(dataStore);
-        EventService eventService = new EventService(dataStore);
         RegistrationService registrationService = new RegistrationService(dataStore);
+        UserService userService = new UserService(dataStore, registrationService);
+        EventService eventService = new EventService(dataStore, registrationService);
         FeedbackService feedbackService = new FeedbackService(dataStore);
         ReportService reportService = new ReportService(dataStore);
 
@@ -58,6 +63,7 @@ public class PlanOTest {
         testEmptyDatabaseAndNumericFormatting();
         testRuleFixes();
         testEncapsulation();
+        testAuditFixes();
 
         // Cleanup
         cleanDirectory(new File(testDataDir));
@@ -190,9 +196,9 @@ public class PlanOTest {
                         cancelRes.promotedRegistration.isConfirmed()
         );
 
-        // Confirm userC is now in confirmed list
-        List<Registration> confirmedList = dataStore.getRegistrationRepository().findConfirmedByEvent(eventId);
-        boolean userCConfirmed = confirmedList.stream().anyMatch(r -> r.getUserId().equals(userC.getUserId()));
+        // Confirm the repository now holds userC's registration as CONFIRMED
+        boolean userCConfirmed = dataStore.getRegistrationRepository().findByEventAndUser(eventId, userC.getUserId())
+                .map(Registration::isConfirmed).orElse(false);
         assertTrue("Repository state reflects userC as CONFIRMED", userCConfirmed);
     }
 
@@ -244,7 +250,7 @@ public class PlanOTest {
         int prevCount = Integer.MAX_VALUE;
         boolean isPop = true;
         for (Event e : sortedPop) {
-            int count = regService.getConfirmedCount(e.getEventId());
+            int count = regService.getSeatsTaken(e.getEventId());
             if (count > prevCount) {
                 isPop = false;
                 break;
@@ -317,10 +323,10 @@ public class PlanOTest {
         System.out.println("\n--- Testing Analytics & Reporting ---");
         ReportService.AdminDashboardData dash = reportService.getAdminDashboard();
 
-        assertTrue("Admin dashboard computes total events > 0", dash.totalEvents > 0);
-        assertTrue("Admin dashboard computes total registered users > 0", dash.totalUsers > 0);
-        assertTrue("Admin dashboard calculates category popularity map", dash.categoryPopularity != null && !dash.categoryPopularity.isEmpty());
-        assertTrue("Admin dashboard generates organizer activity stats", dash.organizerStats != null && !dash.organizerStats.isEmpty());
+        assertTrue("Admin dashboard computes total events > 0", dash.getTotalEvents() > 0);
+        assertTrue("Admin dashboard computes total registered users > 0", dash.getTotalUsers() > 0);
+        assertTrue("Admin dashboard calculates category popularity map", !dash.getCategoryPopularity().isEmpty());
+        assertTrue("Admin dashboard generates organizer activity stats", !dash.getOrganizerStats().isEmpty());
     }
 
     private static void testDataPersistenceReload(String testDataDir) {
@@ -450,9 +456,9 @@ public class PlanOTest {
         assertTrue("Duplicate event for same organizer at same time & venue is rejected", !dupOrgEvent.success);
 
         // 14. Safeguard against deactivating organizer with upcoming events
-        UserService userService = new UserService(dataStore);
+        UserService userService = users(dataStore);
         User admin = dataStore.getUserRepository().findByUsername("admin").get();
-        UserService.OperationResult deactRes = userService.deactivateUser(admin, organizer.getUserId());
+        OperationResult deactRes = userService.deactivateUser(admin, organizer.getUserId());
         assertTrue("Deactivating an organizer with active upcoming events is prevented",
                 !deactRes.success && deactRes.message.contains("active upcoming event"));
 
@@ -497,19 +503,14 @@ public class PlanOTest {
         assertTrue("Number with trailing zeroes '10.00' is detected", InputValidator.hasDecimalOrTrailingZeroes("10.00"));
         assertTrue("Standard integer '50' does not have decimal/trailing zeroes", !InputValidator.hasDecimalOrTrailingZeroes("50"));
 
-        // 4. Integer format checkers
-        assertTrue("'500' matches integer format", InputValidator.isValidIntegerFormat("500"));
-        assertTrue("'0' matches integer format", InputValidator.isValidIntegerFormat("0"));
-        assertTrue("'-5' does not match positive integer format", !InputValidator.isValidPositiveIntegerFormat("-5"));
-
-        // 5. ID format validators
+        // 4. ID format validators
         assertTrue("'EVT-1001' is valid Event ID format", InputValidator.isValidEventId("EVT-1001"));
         assertTrue("'invalid-evt' is rejected as Event ID", !InputValidator.isValidEventId("invalid-evt"));
         assertTrue("'USR-1004' is valid User ID format", InputValidator.isValidUserId("USR-1004"));
         assertTrue("'REG-1001' is valid Registration ID format", InputValidator.isValidRegistrationId("REG-1001"));
         assertTrue("'CAT-101' is valid Category ID format", InputValidator.isValidCategoryId("CAT-101"));
 
-        // 6. Horizon and cancel token validators
+        // 5. Horizon and cancel token validators
         assertTrue("Now plus 1 year is within horizon", InputValidator.isWithinMaxHorizon(LocalDateTime.now().plusYears(1)));
         assertTrue("Now plus 3 years exceeds horizon", !InputValidator.isWithinMaxHorizon(LocalDateTime.now().plusYears(3)));
         assertTrue("'cancel' is recognized as cancel token", ConsoleIO.isCancelToken("cancel"));
@@ -527,7 +528,7 @@ public class PlanOTest {
 
         // Rejected edits change nothing
         DataStore edits = freshStore("edits");
-        EventService editEvents = new EventService(edits);
+        EventService editEvents = events(edits);
         Event summit = edits.getEventRepository().findById("EVT-1001").get();
         String oldTitle = summit.getTitle();
         LocalDateTime oldStart = summit.getStartDateTime();
@@ -538,13 +539,13 @@ public class PlanOTest {
                 !badEdit.success && summit.getTitle().equals(oldTitle) && summit.getStartDateTime().equals(oldStart));
 
         User john = userNamed(edits, "john_doe");
-        UserService.OperationResult badProfile = new UserService(edits).updateProfile(john.getUserId(), "Johnny Changed", "admin@plano.edu", null);
+        OperationResult badProfile = users(edits).updateProfile(john.getUserId(), "Johnny Changed", "admin@plano.edu", null);
         assertTrue("Rejected profile update leaves the name unchanged",
                 !badProfile.success && john.getFullName().equals("John Doe"));
 
         // Raising capacity promotes the waitlist (emily_watson is #1 on the full EVT-1002)
         DataStore capacity = freshStore("capacity");
-        EventService.EventResult grow = new EventService(capacity).updateEvent(userNamed(capacity, "courtney_org"), "EVT-1002",
+        EventService.EventResult grow = events(capacity).updateEvent(userNamed(capacity, "courtney_org"), "EVT-1002",
                 null, null, null, null, null, null, 4);
         Registration emilyWaiting = capacity.getRegistrationRepository()
                 .findByEventAndUser("EVT-1002", userNamed(capacity, "emily_watson").getUserId()).get();
@@ -552,7 +553,7 @@ public class PlanOTest {
 
         // Promotion skips someone it would double-book and promotes the next person instead
         DataStore booking = freshStore("double-booking");
-        EventService bookingEvents = new EventService(booking);
+        EventService bookingEvents = events(booking);
         RegistrationService bookingRegs = new RegistrationService(booking);
         User org = userNamed(booking, "courtney_org");
         LocalDateTime slot = LocalDateTime.now().plusDays(50).withHour(10).withMinute(0);
@@ -573,7 +574,7 @@ public class PlanOTest {
 
         // Cancelling events, and the forward-only status lifecycle
         DataStore lifecycle = freshStore("lifecycle");
-        EventService lifecycleEvents = new EventService(lifecycle);
+        EventService lifecycleEvents = events(lifecycle);
         RegistrationService lifecycleRegs = new RegistrationService(lifecycle);
         User courtney = userNamed(lifecycle, "courtney_org");
         EventService.EventResult cancelled = lifecycleEvents.cancelEvent(courtney, "EVT-1002");
@@ -584,7 +585,7 @@ public class PlanOTest {
         assertTrue("No waitlist promotion happens on a cancelled event", !afterCancel.success && afterCancel.promotedUser == null);
         ReportService.AdminDashboardData lifecycleDash = new ReportService(lifecycle).getAdminDashboard();
         assertTrue("Cancelled events are left out of category popularity",
-                lifecycleDash.categoryPopularity.getOrDefault("Workshop", 0) == 0);
+                lifecycleDash.getCategoryPopularity().getOrDefault("Workshop", 0) == 0);
         assertTrue("A completed event cannot be cancelled", !lifecycleEvents.cancelEvent(courtney, "EVT-1006").success);
         assertTrue("An event cannot be marked Ongoing before its start date",
                 !lifecycleEvents.updateEventStatus(courtney, "EVT-1001", EventStatus.ONGOING).success);
@@ -607,9 +608,9 @@ public class PlanOTest {
         }
         ReportService.AdminDashboardData endedDash = new ReportService(ended).getAdminDashboard();
         assertTrue("Ended events are counted as awaiting completion, not Upcoming",
-                endedDash.upcomingEvents == 3 && endedDash.awaitingCompletionEvents == 2);
+                endedDash.getUpcomingEvents() == 3 && endedDash.getAwaitingCompletionEvents() == 2);
         assertTrue("An organizer whose events have all ended can be deactivated",
-                new UserService(ended).deactivateUser(userNamed(ended, "admin"), userNamed(ended, "gavin_org").getUserId()).success);
+                users(ended).deactivateUser(userNamed(ended, "admin"), userNamed(ended, "gavin_org").getUserId()).success);
 
         // Check-in window and whole-minute event times
         DataStore timing = freshStore("timing");
@@ -620,7 +621,7 @@ public class PlanOTest {
         assertTrue("Event times are stored as whole minutes",
                 timedSummit.getStartDateTime().getSecond() == 0 && timedSummit.getStartDateTime().getNano() == 0
                         && timedSummit.getEndDateTime().getNano() == 0);
-        EventService.EventResult backToBack = new EventService(timing).createEvent(userNamed(timing, "gavin_org"),
+        EventService.EventResult backToBack = events(timing).createEvent(userNamed(timing, "gavin_org"),
                 "Evening Session", "Right after the summit", "Seminar", "Grand Auditorium A",
                 timedSummit.getEndDateTime(), timedSummit.getEndDateTime().plusHours(1), 20);
         assertTrue("An event may start exactly when another ends at the same venue", backToBack.success);
@@ -660,21 +661,21 @@ public class PlanOTest {
         // Reports
         ReportService.AdminDashboardData reportDash = new ReportService(freshStore("reports")).getAdminDashboard();
         assertTrue("Attendance rate only counts completed events (2 of 3 checked in)",
-                reportDash.completedEventCheckIns == 2 && reportDash.completedEventRegistrations == 3
-                        && Math.abs(reportDash.overallAttendanceRate - 66.67) < 0.01);
+                reportDash.getCompletedEventCheckIns() == 2 && reportDash.getCompletedEventRegistrations() == 3
+                        && Math.abs(reportDash.getOverallAttendanceRate() - 66.67) < 0.01);
         assertTrue("Registration breakdown adds up to the total",
-                reportDash.confirmedRegistrations + reportDash.checkedInAttendees + reportDash.waitlistedRegistrations
-                        == reportDash.totalRegistrations);
+                reportDash.getConfirmedRegistrations() + reportDash.getCheckedInAttendees()
+                        + reportDash.getWaitlistedRegistrations() == reportDash.getTotalRegistrations());
 
         // Accounts: sign-up, deactivation, login messages
         DataStore accounts = freshStore("accounts");
         AuthService accountAuth = new AuthService(accounts);
-        UserService accountUsers = new UserService(accounts);
+        UserService accountUsers = users(accounts);
         User admin = userNamed(accounts, "admin");
         AuthService.RegisterResult signUp = accountAuth.register("new_member", "pass123", "New Member", "member@test.com");
         assertTrue("Sign-up always creates an Attendee account", signUp.success && signUp.user.isAttendee());
         String axelId = userNamed(accounts, "axellerosh").getUserId();
-        UserService.OperationResult deactivated = accountUsers.deactivateUser(admin, axelId);
+        OperationResult deactivated = accountUsers.deactivateUser(admin, axelId);
         assertTrue("Deactivating an attendee cancels their upcoming registrations",
                 deactivated.success && !accounts.getRegistrationRepository().findByEventAndUser("EVT-1001", axelId).isPresent());
         Registration emilyAfter = accounts.getRegistrationRepository()
@@ -731,7 +732,7 @@ public class PlanOTest {
         assertTrue("Only attendees can be promoted to Organizer", !adminPromoted);
 
         // Change some state, save, and load it back through the private constructors
-        new UserService(store).deactivateUser(userNamed(store, "admin"), userNamed(store, "mark_lee").getUserId());
+        users(store).deactivateUser(userNamed(store, "admin"), userNamed(store, "mark_lee").getUserId());
         Feedback review = store.getFeedbackRepository().findById("FB-1002").get();
         review.revise(2, "Revised after the hackathon", review.getSubmittedAt());
         store.saveAll();
@@ -748,6 +749,215 @@ public class PlanOTest {
                 reloadedReview.getRating() == 2 && "Revised after the hackathon".equals(reloadedReview.getComment())
                         && !userNamed(reloaded, "mark_lee").isActive()
                         && userNamed(reloaded, "mark_lee").passwordMatches("user123"));
+    }
+
+    /**
+     * Regression checks for the problems found in the code audit (F1 to F13 in the Q&A reviewer).
+     * Each group uses its own freshly seeded data folder.
+     */
+    private static void testAuditFixes() {
+        System.out.println("\n--- Testing Audit Fixes (Regression Checks) ---");
+        LocalDateTime now = LocalDateTime.now();
+
+        // F1: report data cannot be changed from outside ReportService
+        ReportService.AdminDashboardData dash = new ReportService(freshStore("audit-reports")).getAdminDashboard();
+        boolean mapLocked = false;
+        try {
+            dash.getCategoryPopularity().put("Made Up", 99);
+        } catch (UnsupportedOperationException e) {
+            mapLocked = true;
+        }
+        boolean listLocked = false;
+        try {
+            dash.getOrganizerStats().clear();
+        } catch (UnsupportedOperationException e) {
+            listLocked = true;
+        }
+        assertTrue("Dashboard maps and lists are read-only", mapLocked && listLocked);
+        assertTrue("Report classes have no public fields, only getters",
+                hasNoPublicFields(ReportService.AdminDashboardData.class)
+                        && hasNoPublicFields(ReportService.OrganizerDashboardData.class)
+                        && hasNoPublicFields(ReportService.EventPerformance.class));
+
+        // F2: a save that fails is reported, and saves never leave temporary files behind
+        DataStore saving = freshStore("audit-save");
+        Path savingDir = Paths.get("test_data", "audit-save");
+        User gavinSaving = userNamed(saving, "gavin_org");
+        LocalDateTime slot = now.plusDays(45).withHour(10).withMinute(0);
+        events(saving).createEvent(gavinSaving, "Saved Event", "", "Seminar", "Room S1", slot, slot.plusHours(2), 10);
+        assertTrue("Saves write through a temporary file and leave none behind",
+                !Files.exists(savingDir.resolve("events.json.tmp"))
+                        && new DataStore(savingDir.toString()).getEventRepository().size() == 7);
+        blockFile(savingDir.resolve("events.json"));
+        boolean saveFailureReported = false;
+        try {
+            events(saving).createEvent(gavinSaving, "Unsaved Event", "", "Seminar", "Room S2",
+                    slot.plusDays(1), slot.plusDays(1).plusHours(2), 10);
+        } catch (DataSaveException e) {
+            saveFailureReported = e.getMessage().contains("events.json");
+        }
+        assertTrue("A failed save is reported instead of a success message",
+                saveFailureReported && !Files.exists(savingDir.resolve("events.json.tmp")));
+
+        // F3: completed events are read-only; a started event keeps its start time
+        DataStore editing = freshStore("audit-edit");
+        EventService editingEvents = events(editing);
+        User adminEditing = userNamed(editing, "admin");
+        User gavin = userNamed(editing, "gavin_org");
+        Event orientation = editing.getEventRepository().findById("EVT-1006").get();
+        String orientationTitle = orientation.getTitle();
+        EventService.EventResult editCompleted = editingEvents.updateEvent(adminEditing, "EVT-1006",
+                "Renamed After It Ended", null, null, null, null, null, 0);
+        assertTrue("A completed event cannot be edited",
+                !editCompleted.success && orientation.getTitle().equals(orientationTitle));
+        boolean modelRefused = false;
+        try {
+            orientation.updateDetails("Renamed After It Ended", orientation.getDescription(), orientation.getCategory(),
+                    orientation.getVenue(), orientation.getStartDateTime(), orientation.getEndDateTime(), orientation.getCapacity());
+        } catch (IllegalStateException e) {
+            modelRefused = true;
+        }
+        assertTrue("The Event itself refuses edits once it is Completed", modelRefused);
+        Event liveWorkshop = new Event("EVT-9002", "Live Workshop", "Running now", gavin.getUserId(), "Workshop",
+                "Room L2", now.minusHours(1), now.plusHours(1), 10);
+        editing.getEventRepository().add(liveWorkshop);
+        EventService.EventResult moveStart = editingEvents.updateEvent(gavin, "EVT-9002", null, null, null, null,
+                now.plusDays(1), now.plusDays(1).plusHours(2), 0);
+        assertTrue("The start time cannot move once the event has started",
+                !moveStart.success && moveStart.message.contains("started"));
+        LocalDateTime laterEnd = liveWorkshop.getEndDateTime().plusMinutes(30);
+        EventService.EventResult extendLive = editingEvents.updateEvent(gavin, "EVT-9002", "Live Workshop (Extended)",
+                null, null, null, liveWorkshop.getStartDateTime(), laterEnd, 0);
+        assertTrue("A started event can still be renamed and end later",
+                extendLive.success && liveWorkshop.getEndDateTime().equals(laterEnd));
+        Event pastSeminar = editing.getEventRepository().findById("EVT-1003").get();
+        pastSeminar.updateDetails(pastSeminar.getTitle(), pastSeminar.getDescription(), pastSeminar.getCategory(),
+                pastSeminar.getVenue(), now.minusDays(2), now.minusDays(2).plusHours(2), pastSeminar.getCapacity());
+        EventService.EventResult retitlePast = editingEvents.updateEvent(gavin, "EVT-1003", "Design Systems (Recap)",
+                null, null, null, pastSeminar.getStartDateTime(), pastSeminar.getEndDateTime(), 0);
+        assertTrue("An event whose start has passed can be renamed without moving it", retitlePast.success);
+
+        // F4: rescheduling must not double-book the people holding seats
+        DataStore moving = freshStore("audit-reschedule");
+        Event summit = moving.getEventRepository().findById("EVT-1001").get();
+        Event lab = moving.getEventRepository().findById("EVT-1002").get();
+        LocalDateTime labStart = lab.getStartDateTime();
+        User courtney = userNamed(moving, "courtney_org");
+        EventService.EventResult clash = events(moving).updateEvent(courtney, "EVT-1002", null, null, null, null,
+                summit.getStartDateTime().plusHours(1), summit.getStartDateTime().plusHours(3), 0);
+        assertTrue("Rescheduling is refused when it would double-book seat holders",
+                !clash.success && clash.message.contains("3 attendee(s)") && lab.getStartDateTime().equals(labStart));
+        EventService.EventResult freeSlot = events(moving).updateEvent(courtney, "EVT-1002", null, null, null, null,
+                labStart.plusDays(1), lab.getEndDateTime().plusDays(1), 0);
+        assertTrue("Rescheduling to a time with no clashes still works", freeSlot.success);
+
+        // F6: a value that cannot be read stops loading instead of becoming a default
+        assertTrue("A misspelled event status stops loading",
+                refusesToLoad("audit-status", "events.json", "\"status\": \"COMPLETED\"", "\"status\": \"COMPLETE\""));
+        assertTrue("An unknown role stops loading",
+                refusesToLoad("audit-role", "users.json", "\"role\": \"ADMIN\"", "\"role\": \"ADMINISTRATOR\""));
+        assertTrue("An unreadable account creation date stops loading",
+                refusesToLoad("audit-user-date", "users.json", "\"createdAt\": \"[^\"]+\"", "\"createdAt\": \"yesterday\""));
+        assertTrue("A missing event capacity stops loading",
+                refusesToLoad("audit-capacity", "events.json", "\"capacity\": \\d+,", ""));
+
+        // F7: category rules live in CategoryService
+        DataStore cats = freshStore("audit-categories");
+        CategoryService categories = new CategoryService(cats);
+        User adminCats = userNamed(cats, "admin");
+        assertTrue("Only Administrators can add categories",
+                !categories.addCategory(userNamed(cats, "courtney_org"), "Esports", "Competitive gaming").success);
+        assertTrue("Category names must be unique, ignoring letter case",
+                !categories.addCategory(adminCats, "workshop", "Duplicate").success);
+        assertTrue("A category that an event uses cannot be removed",
+                !categories.removeCategory(adminCats, "CAT-101").success);
+        OperationResult added = categories.addCategory(adminCats, "Esports", "Competitive gaming");
+        String catsDir = Paths.get("test_data", "audit-categories").toString();
+        boolean savedAfterAdd = new DataStore(catsDir).getCategoryRepository().existsByName("Esports");
+        String esportsId = cats.getCategoryRepository().findByName("Esports").get().getCategoryId();
+        OperationResult removed = categories.removeCategory(adminCats, esportsId);
+        assertTrue("An unused category can be added and removed, and both changes are saved",
+                added.success && savedAfterAdd && removed.success
+                        && !new DataStore(catsDir).getCategoryRepository().existsByName("Esports"));
+
+        // F8: one capacity limit everywhere
+        DataStore limits = freshStore("audit-capacity-limit");
+        LocalDateTime expo = now.plusDays(55).withHour(9).withMinute(0);
+        EventService.EventResult tooBig = events(limits).createEvent(userNamed(limits, "gavin_org"), "Huge Expo", "",
+                "Conference", "Stadium", expo, expo.plusHours(3), InputValidator.MAX_CAPACITY + 1);
+        EventService.EventResult growTooBig = events(limits).updateEvent(userNamed(limits, "courtney_org"), "EVT-1001",
+                null, null, null, null, null, null, InputValidator.MAX_CAPACITY + 1);
+        assertTrue("Capacity above the limit is rejected when creating and when editing",
+                !tooBig.success && tooBig.message.contains("50,000") && !growTooBig.success);
+
+        // F11: seats taken = confirmed + checked in (EVT-1006: 2 checked in, 1 no-show)
+        assertTrue("Seats taken counts confirmed and checked-in attendees",
+                limits.getRegistrationRepository().countSeatsTakenByEvent("EVT-1006") == 3
+                        && limits.getRegistrationRepository().countCheckedInByEvent("EVT-1006") == 2);
+
+        // F13: utility classes cannot be instantiated
+        assertTrue("Utility classes are final with only private constructors",
+                isUtilityClass(ConsoleIO.class) && isUtilityClass(InputValidator.class) && isUtilityClass(SimpleJson.class));
+    }
+
+    /** An EventService wired the way MenuController wires it. RegistrationService holds no state, so a new one is fine. */
+    private static EventService events(DataStore store) {
+        return new EventService(store, new RegistrationService(store));
+    }
+
+    /** A UserService wired the way MenuController wires it. */
+    private static UserService users(DataStore store) {
+        return new UserService(store, new RegistrationService(store));
+    }
+
+    /** Seeds a data folder, edits one file with a regular expression, and checks that loading it is refused. */
+    private static boolean refusesToLoad(String name, String file, String regex, String replacement) {
+        freshStore(name);
+        Path path = Paths.get("test_data", name, file);
+        String original = readText(path);
+        String edited = original.replaceFirst(regex, replacement);
+        if (edited.equals(original)) {
+            return false; // the edit did not apply, so the check would prove nothing
+        }
+        writeText(path, edited);
+        try {
+            new DataStore(Paths.get("test_data", name).toString());
+            return false;
+        } catch (DataLoadException e) {
+            return e.getMessage().contains(file);
+        }
+    }
+
+    /** Replaces a data file with a folder that is not empty, so the file can no longer be written. */
+    private static void blockFile(Path file) {
+        try {
+            Files.delete(file);
+            Files.createDirectory(file);
+            Files.write(file.resolve("blocker.txt"), "blocks the save".getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static boolean hasNoPublicFields(Class<?> type) {
+        for (Field field : type.getDeclaredFields()) {
+            if (Modifier.isPublic(field.getModifiers())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isUtilityClass(Class<?> type) {
+        if (!Modifier.isFinal(type.getModifiers())) {
+            return false;
+        }
+        for (Constructor<?> constructor : type.getDeclaredConstructors()) {
+            if (!Modifier.isPrivate(constructor.getModifiers())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static DataStore freshStore(String name) {

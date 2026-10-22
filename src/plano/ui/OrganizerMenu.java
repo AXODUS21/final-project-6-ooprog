@@ -169,12 +169,12 @@ public class OrganizerMenu extends EventManagerMenu {
 
         System.out.println(ConsoleIO.BOLD + "SUMMARY METRICS" + ConsoleIO.RESET);
         System.out.printf("  Total Events Created: %d  (Upcoming: %d | Ongoing: %d | Completed: %d | Cancelled: %d | Ended, not marked completed: %d)\n",
-                data.totalEvents, data.upcomingEvents, data.ongoingEvents, data.completedEvents,
-                data.cancelledEvents, data.awaitingCompletionEvents);
+                data.getTotalEvents(), data.getUpcomingEvents(), data.getOngoingEvents(), data.getCompletedEvents(),
+                data.getCancelledEvents(), data.getAwaitingCompletionEvents());
         System.out.printf("  Total Confirmed Attendees: %d | Total Waitlisted: %d | Total Checked-In: %d\n\n",
-                data.totalRegistrations, data.totalWaitlisted, data.totalCheckedIn);
-        if (data.awaitingCompletionEvents > 0) {
-            ConsoleIO.printWarning(data.awaitingCompletionEvents + " of your events have ended but are not marked Completed. " +
+                data.getTotalRegistrations(), data.getTotalWaitlisted(), data.getTotalCheckedIn());
+        if (data.getAwaitingCompletionEvents() > 0) {
+            ConsoleIO.printWarning(data.getAwaitingCompletionEvents() + " of your events have ended but are not marked Completed. " +
                     "Mark them Completed (My Events > Update Event Status) so attendees can leave reviews.");
             System.out.println();
         }
@@ -183,16 +183,18 @@ public class OrganizerMenu extends EventManagerMenu {
                 "Event ID", "Title", "Status", "Cap", "Confirmed", "Waitlist", "Checked-in", "Fill Rate", "Check-in %", "Avg Rating"
         );
 
-        for (ReportService.EventPerformance p : data.eventPerformances) {
-            String avgRatingStr = p.reviewCount > 0 ? String.format("%.1f/5 (%d)", p.averageRating, p.reviewCount) : "No reviews";
+        for (ReportService.EventPerformance p : data.getEventPerformances()) {
+            String avgRatingStr = p.getReviewCount() > 0
+                    ? String.format("%.1f/5 (%d)", p.getAverageRating(), p.getReviewCount())
+                    : "No reviews";
             table.addRow(
-                    p.eventId,
-                    p.title,
-                    p.status.getDisplayName(),
-                    String.valueOf(p.capacity),
-                    String.valueOf(p.confirmed),
-                    String.valueOf(p.waitlisted),
-                    String.valueOf(p.checkedIn),
+                    p.getEventId(),
+                    p.getTitle(),
+                    p.getStatus().getDisplayName(),
+                    String.valueOf(p.getCapacity()),
+                    String.valueOf(p.getSeatsTaken()),
+                    String.valueOf(p.getWaitlisted()),
+                    String.valueOf(p.getCheckedIn()),
                     String.format("%.1f%%", p.getFillRate()),
                     String.format("%.1f%%", p.getAttendanceRate()),
                     avgRatingStr

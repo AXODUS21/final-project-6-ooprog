@@ -94,7 +94,7 @@ public class AttendeeMenu extends RoleMenu {
         }
 
         Event ev = eventOpt.get();
-        int confirmed = registrationService.getConfirmedCount(eventId);
+        int confirmed = registrationService.getSeatsTaken(eventId);
         int waitlisted = registrationService.getWaitlistCount(eventId);
         int spotsLeft = Math.max(0, ev.getCapacity() - confirmed);
 
@@ -206,14 +206,17 @@ public class AttendeeMenu extends RoleMenu {
 
     private void configureSortAndFilter() {
         printSortOptions();
-        System.out.println("6. Set Keyword Search / Category / Venue Filter");
-        System.out.println("7. Show Open Spots Only (" + (activeFilterCriteria.isAvailableOnly() ? "Enabled" : "Disabled") + ")");
-        System.out.println("8. Clear All Active Filters");
+        int searchOption = sortOptionCount() + 1;
+        int openSpotsOption = searchOption + 1;
+        int clearOption = openSpotsOption + 1;
+        System.out.println(searchOption + ". Set Keyword Search / Category / Venue Filter");
+        System.out.println(openSpotsOption + ". Show Open Spots Only (" + (activeFilterCriteria.isAvailableOnly() ? "Enabled" : "Disabled") + ")");
+        System.out.println(clearOption + ". Clear All Active Filters");
         System.out.println("0. Back");
 
-        int choice = ConsoleIO.readInt("Choose option", 0, 8);
+        int choice = ConsoleIO.readInt("Choose option", 0, clearOption);
         if (!applySortChoice(choice)) {
-            if (choice == 6) {
+            if (choice == searchOption) {
                 String kw = ConsoleIO.readString("Search keyword (title/description, or leave blank)");
                 activeFilterCriteria.setTextQuery(kw);
                 String cat = ConsoleIO.readString("Category filter (or leave blank)");
@@ -221,10 +224,10 @@ public class AttendeeMenu extends RoleMenu {
                 String venue = ConsoleIO.readString("Venue filter (or leave blank)");
                 activeFilterCriteria.setVenue(venue);
                 ConsoleIO.printSuccess("Filters applied.");
-            } else if (choice == 7) {
+            } else if (choice == openSpotsOption) {
                 activeFilterCriteria.setAvailableOnly(!activeFilterCriteria.isAvailableOnly());
                 ConsoleIO.printSuccess("Open spots only filter set to: " + activeFilterCriteria.isAvailableOnly());
-            } else if (choice == 8) {
+            } else if (choice == clearOption) {
                 activeFilterCriteria.reset();
                 ConsoleIO.printSuccess("All filters cleared.");
             }
@@ -247,7 +250,7 @@ public class AttendeeMenu extends RoleMenu {
             String newEmail = ConsoleIO.readOptionalEmail("New Email", user.getEmail());
             String newPass = ConsoleIO.readString("New Password (leave empty to keep current)");
 
-            UserService.OperationResult res = userService.updateProfile(user.getUserId(), newName, newEmail, newPass);
+            OperationResult res = userService.updateProfile(user.getUserId(), newName, newEmail, newPass);
             printResult(res.success, res.message);
         }
         ConsoleIO.pause();

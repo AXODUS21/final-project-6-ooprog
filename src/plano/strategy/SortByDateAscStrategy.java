@@ -19,7 +19,7 @@ public class SortByDateAscStrategy implements EventSortStrategy {
 
     @Override
     public String getDescription() {
-        return "Upcoming events ordered chronologically from earliest to latest.";
+        return "Events in order of start time, earliest first.";
     }
 
     @Override

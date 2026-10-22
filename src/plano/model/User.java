@@ -1,7 +1,6 @@
 package plano.model;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -126,27 +125,20 @@ public class User {
         map.put("password", password);
         map.put("fullName", fullName);
         map.put("email", email);
-        map.put("role", role != null ? role.name() : Role.ATTENDEE.name());
+        map.put("role", role.name());
         map.put("active", active);
-        map.put("createdAt", createdAt != null ? createdAt.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
+        map.put("createdAt", SavedFields.formatDate(createdAt));
         return map;
     }
 
+    /**
+     * Restores a saved account.
+     *
+     * @throws RuntimeException if the role, active flag or creation time cannot be read
+     */
     public static User fromMap(Map<String, Object> map) {
         if (map == null) return null;
-        Object act = map.get("active");
-        boolean active = act instanceof Boolean ? (Boolean) act : Boolean.parseBoolean(String.valueOf(act));
-
-        LocalDateTime createdAt = LocalDateTime.now();
-        String ca = (String) map.get("createdAt");
-        if (ca != null && !ca.trim().isEmpty()) {
-            try {
-                createdAt = LocalDateTime.parse(ca, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-            } catch (Exception e) {
-                createdAt = LocalDateTime.now();
-            }
-        }
-
+        LocalDateTime createdAt = SavedFields.parseDate((String) map.get("createdAt"));
         return new User(
                 (String) map.get("userId"),
                 (String) map.get("username"),
@@ -154,7 +146,7 @@ public class User {
                 (String) map.get("fullName"),
                 (String) map.get("email"),
                 Role.fromString((String) map.get("role")),
-                active,
-                createdAt);
+                SavedFields.requireBoolean(map, "active"),
+                createdAt != null ? createdAt : LocalDateTime.now());
     }
 }

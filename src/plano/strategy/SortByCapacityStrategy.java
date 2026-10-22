@@ -13,12 +13,12 @@ public class SortByCapacityStrategy implements EventSortStrategy {
 
     @Override
     public String getName() {
-        return "Capacity (Largest Venue / Hall)";
+        return "Capacity (Largest First)";
     }
 
     @Override
     public String getDescription() {
-        return "Events ordered by highest venue capacity first.";
+        return "Events with the most seats first.";
     }
 
     @Override

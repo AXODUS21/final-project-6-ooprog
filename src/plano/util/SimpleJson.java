@@ -5,8 +5,12 @@ import java.util.*;
 /**
  * Lightweight, self-contained JSON serializer and recursive-descent parser
  * implemented using only the Java Standard Library.
+ * A utility class: it only has static members and cannot be instantiated.
  */
-public class SimpleJson {
+public final class SimpleJson {
+
+    private SimpleJson() {
+    }
 
     // ==================== SERIALIZATION ====================
 

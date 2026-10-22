@@ -32,7 +32,7 @@ public abstract class EventManagerMenu extends RoleMenu {
     /** Returns the event with this ID if it exists and this role may manage it. */
     protected Optional<Event> findManageableEvent(String eventId) {
         Optional<Event> event = eventService.getEventById(eventId);
-        return event.isPresent() && canManage(event.get()) ? event : Optional.<Event>empty();
+        return event.isPresent() && canManage(event.get()) ? event : Optional.empty();
     }
 
     /** Asks for every detail of a new event, then creates it. */
@@ -65,18 +65,30 @@ public abstract class EventManagerMenu extends RoleMenu {
         ConsoleIO.pause();
     }
 
-    /** Asks for new details (blank keeps the current value) and saves them. */
+    /**
+     * Asks for new details (blank keeps the current value) and saves them.
+     * Completed and cancelled events are refused before any prompt, and the start time
+     * is not asked for once the event has started.
+     */
     protected void editEventDetails(Event event) {
         ConsoleIO.printSection("Edit Event: " + event.getTitle());
-        if (event.isCancelled()) {
-            ConsoleIO.printError("Cannot edit a cancelled event.");
+        try {
+            event.checkEditable();
+        } catch (IllegalStateException notEditable) {
+            ConsoleIO.printError(notEditable.getMessage());
             return;
         }
 
         String title = ConsoleIO.readOptionalString("New Title", event.getTitle());
         String desc = ConsoleIO.readOptionalString("New Description", event.getDescription());
         String venue = ConsoleIO.readOptionalString("New Venue", event.getVenue());
-        LocalDateTime start = ConsoleIO.readOptionalDateTime("New Start Time", event.getStartDateTime(), event.isUpcoming());
+        LocalDateTime start = event.getStartDateTime();
+        if (event.isOngoing() || event.hasStarted(LocalDateTime.now())) {
+            ConsoleIO.printInfo("The start time (" + start.format(ConsoleIO.DATE_TIME_FORMATTER) +
+                    ") stays the same because the event has started.");
+        } else {
+            start = ConsoleIO.readOptionalDateTime("New Start Time", event.getStartDateTime(), true);
+        }
         LocalDateTime end = ConsoleIO.readOptionalDateTimeAfter("New End Time", event.getEndDateTime(), start);
         int cap = ConsoleIO.readOptionalPositiveInt("New Capacity Limit", event.getCapacity());
 

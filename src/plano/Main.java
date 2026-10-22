@@ -1,6 +1,7 @@
 package plano;
 
 import plano.repository.DataLoadException;
+import plano.repository.DataSaveException;
 import plano.repository.DataStore;
 import plano.ui.MenuController;
 import plano.util.InputClosedException;
@@ -15,11 +16,12 @@ import plano.util.InputClosedException;
  */
 public class Main {
     public static void main(String[] args) {
-        // Initialize persistent storage (seeds demo data on the first run)
+        // Initialize persistent storage (seeds demo data on the first run).
+        // Either problem stops PlanO before any menu opens, so the two share one handler (multi-catch).
         DataStore dataStore;
         try {
             dataStore = new DataStore("data");
-        } catch (DataLoadException e) {
+        } catch (DataLoadException | DataSaveException e) {
             System.out.println("[ERROR] " + e.getMessage());
             System.exit(1);
             return;

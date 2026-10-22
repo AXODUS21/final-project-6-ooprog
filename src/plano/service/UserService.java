@@ -17,9 +17,13 @@ public class UserService {
     private final DataStore dataStore;
     private final RegistrationService registrationService;
 
-    public UserService(DataStore dataStore) {
+    /**
+     * @param registrationService the application's shared registration service, used to release
+     *                            a deactivated user's seats
+     */
+    public UserService(DataStore dataStore, RegistrationService registrationService) {
         this.dataStore = dataStore;
-        this.registrationService = new RegistrationService(dataStore);
+        this.registrationService = registrationService;
     }
 
     public List<User> getAllUsers() {
@@ -31,7 +35,7 @@ public class UserService {
      * The user's registrations for events that have not started are cancelled and their seats
      * are offered to the waitlist.
      */
-    public synchronized OperationResult deactivateUser(User adminUser, String targetUserId) {
+    public OperationResult deactivateUser(User adminUser, String targetUserId) {
         if (adminUser == null || !adminUser.isAdmin()) {
             return new OperationResult(false, "Access denied. Only Administrators can deactivate users.");
         }
@@ -75,7 +79,7 @@ public class UserService {
         return new OperationResult(true, msg);
     }
 
-    public synchronized OperationResult reactivateUser(User adminUser, String targetUserId) {
+    public OperationResult reactivateUser(User adminUser, String targetUserId) {
         if (adminUser == null || !adminUser.isAdmin()) {
             return new OperationResult(false, "Access denied. Only Administrators can reactivate users.");
         }
@@ -94,7 +98,7 @@ public class UserService {
         return new OperationResult(true, "User '" + target.getUsername() + "' has been reactivated.");
     }
 
-    public synchronized OperationResult promoteToOrganizer(User adminUser, String targetUserId) {
+    public OperationResult promoteToOrganizer(User adminUser, String targetUserId) {
         if (adminUser == null || !adminUser.isAdmin()) {
             return new OperationResult(false, "Access denied. Only Administrators can promote users.");
         }
@@ -121,7 +125,7 @@ public class UserService {
      * Updates profile details. Blank arguments keep the current value. Every field is validated
      * first, so a rejected update changes nothing.
      */
-    public synchronized OperationResult updateProfile(String userId, String fullName, String email, String newPassword) {
+    public OperationResult updateProfile(String userId, String fullName, String email, String newPassword) {
         Optional<User> userOpt = dataStore.getUserRepository().findById(userId);
         if (!userOpt.isPresent()) {
             return new OperationResult(false, "User not found.");
@@ -169,15 +173,5 @@ public class UserService {
 
         dataStore.saveUsers();
         return new OperationResult(true, "Profile updated successfully.");
-    }
-
-    public static class OperationResult {
-        public final boolean success;
-        public final String message;
-
-        public OperationResult(boolean success, String message) {
-            this.success = success;
-            this.message = message;
-        }
     }
 }

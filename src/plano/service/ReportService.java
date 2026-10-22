@@ -13,6 +13,10 @@ import java.util.stream.Collectors;
  * and scoped event performance metrics for Organizers.
  * Registrations of cancelled events are left out of all totals, and the
  * attendance rate only counts events that have been completed.
+ *
+ * The report classes below are read-only for every other class: their fields are private
+ * and have getters only. ReportService fills them in while building a report, which Java
+ * allows because an enclosing class can use the private members of its nested classes.
  */
 public class ReportService {
     private final DataStore dataStore;
@@ -56,16 +60,13 @@ public class ReportService {
         data.waitlistedRegistrations = (int) liveRegs.stream().filter(Registration::isWaitlisted).count();
         data.checkedInAttendees = (int) liveRegs.stream().filter(Registration::isCheckedIn).count();
 
-        // Attendance rate (checked-in vs. registered) over completed events only
+        // Attendance (checked-in vs. seats taken) over completed events only
         for (Event e : allEvents) {
             if (e.isCompleted()) {
-                data.completedEventRegistrations += regRepo.countConfirmedByEvent(e.getEventId());
+                data.completedEventRegistrations += regRepo.countSeatsTakenByEvent(e.getEventId());
                 data.completedEventCheckIns += regRepo.countCheckedInByEvent(e.getEventId());
             }
         }
-        data.overallAttendanceRate = data.completedEventRegistrations > 0
-                ? ((double) data.completedEventCheckIns / data.completedEventRegistrations) * 100.0
-                : 0.0;
 
         // Category Popularity: seats taken per category, cancelled events excluded
         Map<String, Integer> catCounts = new LinkedHashMap<>();
@@ -74,12 +75,12 @@ public class ReportService {
                 continue;
             }
             String cat = e.getCategory() != null ? e.getCategory() : "Uncategorized";
-            int count = regRepo.countConfirmedByEvent(e.getEventId());
+            int count = regRepo.countSeatsTakenByEvent(e.getEventId());
             catCounts.put(cat, catCounts.getOrDefault(cat, 0) + count);
         }
-        data.categoryPopularity = catCounts.entrySet().stream()
+        data.categoryPopularity = Collections.unmodifiableMap(catCounts.entrySet().stream()
                 .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new)));
 
         // Organizer Activity
         List<OrganizerStats> orgList = new ArrayList<>();
@@ -94,7 +95,7 @@ public class ReportService {
                         if (ev.isCancelled()) {
                             continue;
                         }
-                        totalRegistrations += regRepo.countConfirmedByEvent(ev.getEventId());
+                        totalRegistrations += regRepo.countSeatsTakenByEvent(ev.getEventId());
                         totalCheckedIn += regRepo.countCheckedInByEvent(ev.getEventId());
                     }
                     orgList.add(new OrganizerStats(u.getUserId(), u.getFullName(), u.getUsername(), eventCount, totalRegistrations, totalCheckedIn));
@@ -102,7 +103,7 @@ public class ReportService {
             }
         }
         orgList.sort(Comparator.comparingInt(OrganizerStats::getEventCount).reversed());
-        data.organizerStats = orgList;
+        data.organizerStats = Collections.unmodifiableList(orgList);
 
         return data;
     }
@@ -123,21 +124,17 @@ public class ReportService {
         data.cancelledEvents = (int) orgEvents.stream().filter(Event::isCancelled).count();
 
         List<EventPerformance> performanceList = new ArrayList<>();
-        int totalReg = 0;
-        int totalWait = 0;
-        int totalCheckIn = 0;
-
         for (Event ev : orgEvents) {
-            int confirmed = regRepo.countConfirmedByEvent(ev.getEventId());
+            int seatsTaken = regRepo.countSeatsTakenByEvent(ev.getEventId());
             int waitlisted = regRepo.countWaitlistedByEvent(ev.getEventId());
             int checkedIn = regRepo.countCheckedInByEvent(ev.getEventId());
             double avgRating = dataStore.getFeedbackRepository().getAverageRatingForEvent(ev.getEventId());
             int reviewCount = dataStore.getFeedbackRepository().findByEvent(ev.getEventId()).size();
 
             if (!ev.isCancelled()) {
-                totalReg += confirmed;
-                totalWait += waitlisted;
-                totalCheckIn += checkedIn;
+                data.totalRegistrations += seatsTaken;
+                data.totalWaitlisted += waitlisted;
+                data.totalCheckedIn += checkedIn;
             }
 
             performanceList.add(new EventPerformance(
@@ -145,50 +142,79 @@ public class ReportService {
                     ev.getTitle(),
                     ev.getStatus(),
                     ev.getCapacity(),
-                    confirmed,
+                    seatsTaken,
                     waitlisted,
                     checkedIn,
                     avgRating,
                     reviewCount
             ));
         }
-
-        data.totalRegistrations = totalReg;
-        data.totalWaitlisted = totalWait;
-        data.totalCheckedIn = totalCheckIn;
-        data.eventPerformances = performanceList;
+        data.eventPerformances = Collections.unmodifiableList(performanceList);
 
         return data;
     }
 
-    // ==================== DATA CARRIER CLASSES ====================
+    // ==================== REPORT CLASSES (read-only outside ReportService) ====================
 
     public static class AdminDashboardData {
-        public int totalEvents;
-        public int upcomingEvents;
-        public int ongoingEvents;
-        /** Events whose end time has passed but that were never marked Completed. */
-        public int awaitingCompletionEvents;
-        public int completedEvents;
-        public int cancelledEvents;
+        private int totalEvents;
+        private int upcomingEvents;
+        private int ongoingEvents;
+        private int awaitingCompletionEvents;
+        private int completedEvents;
+        private int cancelledEvents;
 
-        public int totalUsers;
-        public int totalOrganizers;
-        public int totalAttendees;
+        private int totalUsers;
+        private int totalOrganizers;
+        private int totalAttendees;
+
+        private int totalRegistrations;
+        private int confirmedRegistrations;
+        private int waitlistedRegistrations;
+        private int checkedInAttendees;
+
+        private int completedEventRegistrations;
+        private int completedEventCheckIns;
+
+        private Map<String, Integer> categoryPopularity = Collections.emptyMap();
+        private List<OrganizerStats> organizerStats = Collections.emptyList();
+
+        private AdminDashboardData() {
+        }
+
+        public int getTotalEvents() { return totalEvents; }
+        public int getUpcomingEvents() { return upcomingEvents; }
+        public int getOngoingEvents() { return ongoingEvents; }
+        /** Events whose end time has passed but that were never marked Completed. */
+        public int getAwaitingCompletionEvents() { return awaitingCompletionEvents; }
+        public int getCompletedEvents() { return completedEvents; }
+        public int getCancelledEvents() { return cancelledEvents; }
+
+        public int getTotalUsers() { return totalUsers; }
+        public int getTotalOrganizers() { return totalOrganizers; }
+        public int getTotalAttendees() { return totalAttendees; }
 
         /** Active registrations (confirmed + checked in + waitlisted) of events that are not cancelled. */
-        public int totalRegistrations;
-        public int confirmedRegistrations;
-        public int waitlistedRegistrations;
-        public int checkedInAttendees;
+        public int getTotalRegistrations() { return totalRegistrations; }
+        public int getConfirmedRegistrations() { return confirmedRegistrations; }
+        public int getWaitlistedRegistrations() { return waitlistedRegistrations; }
+        public int getCheckedInAttendees() { return checkedInAttendees; }
 
-        /** Seats taken at completed events, and how many of those people checked in. */
-        public int completedEventRegistrations;
-        public int completedEventCheckIns;
-        public double overallAttendanceRate;
+        /** Seats taken at completed events. */
+        public int getCompletedEventRegistrations() { return completedEventRegistrations; }
+        /** How many of the people holding those seats checked in. */
+        public int getCompletedEventCheckIns() { return completedEventCheckIns; }
 
-        public Map<String, Integer> categoryPopularity;
-        public List<OrganizerStats> organizerStats;
+        /** Check-ins as a percentage of seats taken at completed events (0 when there are none). */
+        public double getOverallAttendanceRate() {
+            if (completedEventRegistrations <= 0) return 0.0;
+            return ((double) completedEventCheckIns / completedEventRegistrations) * 100.0;
+        }
+
+        /** Seats taken per category, most popular first. The map cannot be changed. */
+        public Map<String, Integer> getCategoryPopularity() { return categoryPopularity; }
+        /** Organizers with the most events first. The list cannot be changed. */
+        public List<OrganizerStats> getOrganizerStats() { return organizerStats; }
     }
 
     public static class OrganizerStats {
@@ -217,54 +243,82 @@ public class ReportService {
     }
 
     public static class OrganizerDashboardData {
-        public int totalEvents;
-        public int upcomingEvents;
-        public int ongoingEvents;
+        private int totalEvents;
+        private int upcomingEvents;
+        private int ongoingEvents;
+        private int awaitingCompletionEvents;
+        private int completedEvents;
+        private int cancelledEvents;
+
+        private int totalRegistrations;
+        private int totalWaitlisted;
+        private int totalCheckedIn;
+
+        private List<EventPerformance> eventPerformances = Collections.emptyList();
+
+        private OrganizerDashboardData() {
+        }
+
+        public int getTotalEvents() { return totalEvents; }
+        public int getUpcomingEvents() { return upcomingEvents; }
+        public int getOngoingEvents() { return ongoingEvents; }
         /** Events whose end time has passed but that were never marked Completed. */
-        public int awaitingCompletionEvents;
-        public int completedEvents;
-        public int cancelledEvents;
+        public int getAwaitingCompletionEvents() { return awaitingCompletionEvents; }
+        public int getCompletedEvents() { return completedEvents; }
+        public int getCancelledEvents() { return cancelledEvents; }
 
-        public int totalRegistrations;
-        public int totalWaitlisted;
-        public int totalCheckedIn;
+        /** Seats taken across the organizer's events that are not cancelled. */
+        public int getTotalRegistrations() { return totalRegistrations; }
+        public int getTotalWaitlisted() { return totalWaitlisted; }
+        public int getTotalCheckedIn() { return totalCheckedIn; }
 
-        public List<EventPerformance> eventPerformances;
+        /** One row per event. The list cannot be changed. */
+        public List<EventPerformance> getEventPerformances() { return eventPerformances; }
     }
 
     public static class EventPerformance {
-        public final String eventId;
-        public final String title;
-        public final EventStatus status;
-        public final int capacity;
-        public final int confirmed;
-        public final int waitlisted;
-        public final int checkedIn;
-        public final double averageRating;
-        public final int reviewCount;
+        private final String eventId;
+        private final String title;
+        private final EventStatus status;
+        private final int capacity;
+        private final int seatsTaken;
+        private final int waitlisted;
+        private final int checkedIn;
+        private final double averageRating;
+        private final int reviewCount;
 
         public EventPerformance(String eventId, String title, EventStatus status, int capacity,
-                                int confirmed, int waitlisted, int checkedIn, double averageRating, int reviewCount) {
+                                int seatsTaken, int waitlisted, int checkedIn, double averageRating, int reviewCount) {
             this.eventId = eventId;
             this.title = title;
             this.status = status;
             this.capacity = capacity;
-            this.confirmed = confirmed;
+            this.seatsTaken = seatsTaken;
             this.waitlisted = waitlisted;
             this.checkedIn = checkedIn;
             this.averageRating = averageRating;
             this.reviewCount = reviewCount;
         }
 
+        public String getEventId() { return eventId; }
+        public String getTitle() { return title; }
+        public EventStatus getStatus() { return status; }
+        public int getCapacity() { return capacity; }
+        /** Confirmed and checked-in attendees. */
+        public int getSeatsTaken() { return seatsTaken; }
+        public int getWaitlisted() { return waitlisted; }
+        public int getCheckedIn() { return checkedIn; }
+        public double getAverageRating() { return averageRating; }
+        public int getReviewCount() { return reviewCount; }
+
         public double getFillRate() {
             if (capacity <= 0) return 0.0;
-            return ((double) confirmed / capacity) * 100.0;
+            return ((double) seatsTaken / capacity) * 100.0;
         }
 
         public double getAttendanceRate() {
-            int eligible = confirmed;
-            if (eligible <= 0) return 0.0;
-            return ((double) checkedIn / eligible) * 100.0;
+            if (seatsTaken <= 0) return 0.0;
+            return ((double) checkedIn / seatsTaken) * 100.0;
         }
     }
 }

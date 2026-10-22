@@ -19,7 +19,7 @@ public class SortByDateDescStrategy implements EventSortStrategy {
 
     @Override
     public String getDescription() {
-        return "Events ordered reverse-chronologically from latest to earliest.";
+        return "Events in order of start time, latest first.";
     }
 
     @Override

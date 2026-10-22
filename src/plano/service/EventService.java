@@ -5,10 +5,10 @@ import plano.model.EventStatus;
 import plano.model.Registration;
 import plano.model.User;
 import plano.repository.DataStore;
-import plano.strategy.CompositeEventFilterStrategy;
 import plano.strategy.EventFilterCriteria;
 import plano.strategy.EventFilterStrategy;
 import plano.strategy.EventSortStrategy;
+import plano.strategy.MultiCriteriaFilterStrategy;
 import plano.util.ConsoleIO;
 import plano.util.InputValidator;
 
@@ -16,6 +16,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -25,11 +27,15 @@ import java.util.Optional;
 public class EventService {
     private final DataStore dataStore;
     private final RegistrationService registrationService;
-    private final EventFilterStrategy filterStrategy = new CompositeEventFilterStrategy();
+    private final EventFilterStrategy filterStrategy = new MultiCriteriaFilterStrategy();
 
-    public EventService(DataStore dataStore) {
+    /**
+     * @param registrationService the application's shared registration service, used to fill the
+     *                            waitlist, cancel registrations and check attendees' schedules
+     */
+    public EventService(DataStore dataStore, RegistrationService registrationService) {
         this.dataStore = dataStore;
-        this.registrationService = new RegistrationService(dataStore);
+        this.registrationService = registrationService;
     }
 
     public List<Event> getAllEvents() {
@@ -47,7 +53,7 @@ public class EventService {
     /**
      * Creates a new event with scheduling conflict detection and field validation.
      */
-    public synchronized EventResult createEvent(User creator, String title, String description,
+    public EventResult createEvent(User creator, String title, String description,
                                                 String category, String venue,
                                                 LocalDateTime startDateTime, LocalDateTime endDateTime,
                                                 int capacity) {
@@ -71,7 +77,7 @@ public class EventService {
         }
 
         if (!InputValidator.isValidCapacity(capacity)) {
-            return new EventResult(false, "Capacity must be between 1 and 50,000.", null);
+            return new EventResult(false, capacityRangeMessage(), null);
         }
 
         if (!InputValidator.isFuture(startDateTime)) {
@@ -119,16 +125,17 @@ public class EventService {
     }
 
     /**
-     * Updates an existing event. Every field is validated first; the event is changed
+     * Updates an Upcoming or Ongoing event. Every field is validated first; the event is changed
      * only if all checks pass, so a rejected edit leaves the event exactly as it was.
      * Blank/null arguments (and capacity <= 0) keep the current value.
-     * Raising the capacity offers the new seats to the waitlist.
+     * The start time cannot move once the event has started, and new times are refused if they
+     * would double-book anyone holding a seat. Raising the capacity offers the new seats to the waitlist.
      */
-    public synchronized EventResult updateEvent(User requestingUser, String eventId,
-                                                String title, String description,
-                                                String category, String venue,
-                                                LocalDateTime startDateTime, LocalDateTime endDateTime,
-                                                int capacity) {
+    public EventResult updateEvent(User requestingUser, String eventId,
+                                   String title, String description,
+                                   String category, String venue,
+                                   LocalDateTime startDateTime, LocalDateTime endDateTime,
+                                   int capacity) {
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
         if (!eventOpt.isPresent()) {
             return new EventResult(false, "Event not found with ID: " + eventId, null);
@@ -141,8 +148,11 @@ public class EventService {
             return new EventResult(false, "Access denied. You can only edit your own events.", null);
         }
 
-        if (event.isCancelled()) {
-            return new EventResult(false, "Cancelled events cannot be modified.", null);
+        // The event decides whether it can still be edited (Completed and Cancelled events cannot).
+        try {
+            event.checkEditable();
+        } catch (IllegalStateException e) {
+            return new EventResult(false, e.getMessage(), null);
         }
 
         // 1. Work out and validate the new values without touching the event.
@@ -174,12 +184,18 @@ public class EventService {
 
         LocalDateTime newStart = startDateTime != null ? Event.toWholeMinute(startDateTime) : event.getStartDateTime();
         LocalDateTime newEnd = endDateTime != null ? Event.toWholeMinute(endDateTime) : event.getEndDateTime();
+        boolean startMoved = !Objects.equals(newStart, event.getStartDateTime());
+        boolean timesChanged = startMoved || !Objects.equals(newEnd, event.getEndDateTime());
 
-        if (startDateTime != null && event.isUpcoming() && !InputValidator.isFuture(newStart)) {
+        if (startMoved && (event.isOngoing() || event.hasStarted(LocalDateTime.now()))) {
+            return new EventResult(false, "The start time cannot change once the event has started.", null);
+        }
+
+        if (startMoved && !InputValidator.isFuture(newStart)) {
             return new EventResult(false, "Rescheduled event start time must be in the future.", null);
         }
 
-        if (startDateTime != null && !InputValidator.isWithinMaxHorizon(newStart)) {
+        if (startMoved && !InputValidator.isWithinMaxHorizon(newStart)) {
             return new EventResult(false, "Event cannot be scheduled more than " +
                     InputValidator.MAX_EVENT_HORIZON_YEARS + " years in advance.", null);
         }
@@ -198,15 +214,24 @@ public class EventService {
             return new EventResult(false, conflictMessage(newVenue, conflicts.get(0)), null);
         }
 
+        // Moving the event must not double-book the people who already hold a seat at it
+        if (timesChanged) {
+            int clashes = registrationService.countSeatHolderClashes(event, newStart, newEnd);
+            if (clashes > 0) {
+                return new EventResult(false, "Cannot move the event to this time: " + clashes +
+                        " attendee(s) holding a seat already have another event during it.", null);
+            }
+        }
+
         int newCapacity = event.getCapacity();
         if (capacity > 0) {
-            int confirmedCount = dataStore.getRegistrationRepository().countConfirmedByEvent(eventId);
-            if (capacity < confirmedCount) {
-                return new EventResult(false, "Cannot reduce capacity to " + capacity +
-                        ". There are already " + confirmedCount + " confirmed attendees.", null);
+            if (!InputValidator.isValidCapacity(capacity)) {
+                return new EventResult(false, capacityRangeMessage(), null);
             }
-            if (capacity > 50000) {
-                return new EventResult(false, "Capacity exceeds maximum allowable limit (50,000).", null);
+            int seatsTaken = dataStore.getRegistrationRepository().countSeatsTakenByEvent(eventId);
+            if (capacity < seatsTaken) {
+                return new EventResult(false, "Cannot reduce capacity to " + capacity +
+                        ". " + seatsTaken + " seats are already taken.", null);
             }
             newCapacity = capacity;
         }
@@ -217,7 +242,7 @@ public class EventService {
 
         List<Registration> promoted = capacityGrew
                 ? registrationService.fillOpenSpots(event)
-                : Collections.<Registration>emptyList();
+                : Collections.emptyList();
 
         dataStore.saveEvents();
         if (!promoted.isEmpty()) {
@@ -231,7 +256,7 @@ public class EventService {
      * Cancels an event and its confirmed and waitlisted registrations.
      * Admin can cancel any event; an Organizer only their own. Completed events cannot be cancelled.
      */
-    public synchronized EventResult cancelEvent(User requestingUser, String eventId) {
+    public EventResult cancelEvent(User requestingUser, String eventId) {
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
         if (!eventOpt.isPresent()) {
             return new EventResult(false, "Event not found with ID: " + eventId, null);
@@ -264,7 +289,7 @@ public class EventService {
      * Moves an event forward to ONGOING or COMPLETED. The event itself decides
      * whether the change is allowed (see {@link Event#changeStatus}).
      */
-    public synchronized EventResult updateEventStatus(User requestingUser, String eventId, EventStatus newStatus) {
+    public EventResult updateEventStatus(User requestingUser, String eventId, EventStatus newStatus) {
         Optional<Event> eventOpt = dataStore.getEventRepository().findById(eventId);
         if (!eventOpt.isPresent()) {
             return new EventResult(false, "Event not found.", null);
@@ -304,6 +329,10 @@ public class EventService {
             return new ArrayList<>(events);
         }
         return sortStrategy.sort(events, dataStore.getRegistrationRepository());
+    }
+
+    private static String capacityRangeMessage() {
+        return String.format(Locale.US, "Capacity must be between 1 and %,d.", InputValidator.MAX_CAPACITY);
     }
 
     private static String conflictMessage(String venue, Event conflict) {

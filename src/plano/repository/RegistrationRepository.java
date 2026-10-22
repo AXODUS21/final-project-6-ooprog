@@ -1,7 +1,6 @@
 package plano.repository;
 
 import plano.model.Registration;
-import plano.model.RegistrationStatus;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -41,42 +40,39 @@ public class RegistrationRepository {
                 .collect(Collectors.toList());
     }
 
+    /** Returns the user's registration for the event that is not cancelled, if there is one. */
     public Optional<Registration> findByEventAndUser(String eventId, String userId) {
         if (eventId == null || userId == null) return Optional.empty();
         return registrations.values().stream()
                 .filter(r -> eventId.equals(r.getEventId()) && userId.equals(r.getUserId()))
-                .filter(r -> r.getStatus() != RegistrationStatus.CANCELLED)
+                .filter(r -> !r.isCancelled())
                 .findFirst();
     }
 
-    public List<Registration> findConfirmedByEvent(String eventId) {
-        return findByEvent(eventId).stream()
-                .filter(r -> r.getStatus() == RegistrationStatus.CONFIRMED || r.getStatus() == RegistrationStatus.CHECKED_IN)
-                .collect(Collectors.toList());
-    }
-
+    /** The event's waitlist in the order people joined it (first in, first out). */
     public List<Registration> findWaitlistedByEvent(String eventId) {
         return findByEvent(eventId).stream()
-                .filter(r -> r.getStatus() == RegistrationStatus.WAITLISTED)
+                .filter(Registration::isWaitlisted)
                 .sorted(Comparator.comparing(Registration::getRegisteredAt))
                 .collect(Collectors.toList());
     }
 
-    public int countConfirmedByEvent(String eventId) {
+    /** Seats taken at the event: confirmed and checked-in registrations (see {@link Registration#holdsSeat()}). */
+    public int countSeatsTakenByEvent(String eventId) {
         return (int) findByEvent(eventId).stream()
-                .filter(r -> r.getStatus() == RegistrationStatus.CONFIRMED || r.getStatus() == RegistrationStatus.CHECKED_IN)
+                .filter(Registration::holdsSeat)
                 .count();
     }
 
     public int countWaitlistedByEvent(String eventId) {
         return (int) findByEvent(eventId).stream()
-                .filter(r -> r.getStatus() == RegistrationStatus.WAITLISTED)
+                .filter(Registration::isWaitlisted)
                 .count();
     }
 
     public int countCheckedInByEvent(String eventId) {
         return (int) findByEvent(eventId).stream()
-                .filter(r -> r.getStatus() == RegistrationStatus.CHECKED_IN)
+                .filter(Registration::isCheckedIn)
                 .count();
     }
 

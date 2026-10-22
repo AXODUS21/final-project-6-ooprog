@@ -9,6 +9,6 @@ import java.util.List;
  * Strategy interface for filtering events based on various conditions.
  */
 public interface EventFilterStrategy {
-    String getName();
+    /** Returns the events that match the criteria, in their original order; null criteria keeps all. */
     List<Event> filter(List<Event> events, EventFilterCriteria criteria, RegistrationRepository regRepo);
 }

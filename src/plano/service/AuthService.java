@@ -30,7 +30,7 @@ public class AuthService {
         this.currentUser = null;
     }
 
-    public synchronized LoginResult login(String username, String password) {
+    public LoginResult login(String username, String password) {
         if (dataStore.getUserRepository().size() == 0) {
             return new LoginResult(false, "No registered accounts exist in the database. Please register an account first.", null);
         }
@@ -61,7 +61,7 @@ public class AuthService {
     /**
      * Public sign-up. Always creates an Attendee account; Organizers are promoted by an Administrator.
      */
-    public synchronized RegisterResult register(String username, String password, String fullName, String email) {
+    public RegisterResult register(String username, String password, String fullName, String email) {
         if (!InputValidator.isValidUsername(username)) {
             return new RegisterResult(false, "Username must be 3-30 characters long and contain only letters, numbers, underscores, dots, or hyphens.", null);
         }

@@ -1,7 +1,6 @@
 package plano.model;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -86,33 +85,24 @@ public class Feedback {
         map.put("userId", userId);
         map.put("rating", rating);
         map.put("comment", comment);
-        map.put("submittedAt", submittedAt != null ? submittedAt.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) : "");
+        map.put("submittedAt", SavedFields.formatDate(submittedAt));
         return map;
     }
 
+    /**
+     * Restores a saved review.
+     *
+     * @throws RuntimeException if the rating or submission time cannot be read
+     */
     public static Feedback fromMap(Map<String, Object> map) {
         if (map == null) return null;
-
-        int rating = 0;
-        Object rObj = map.get("rating");
-        if (rObj instanceof Number) {
-            rating = ((Number) rObj).intValue();
-        } else if (rObj != null) {
-            rating = Integer.parseInt(rObj.toString());
-        }
-
-        LocalDateTime submittedAt = LocalDateTime.now();
-        String sa = (String) map.get("submittedAt");
-        if (sa != null && !sa.trim().isEmpty()) {
-            submittedAt = LocalDateTime.parse(sa, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        }
-
+        LocalDateTime submittedAt = SavedFields.parseDate((String) map.get("submittedAt"));
         return new Feedback(
                 (String) map.get("feedbackId"),
                 (String) map.get("eventId"),
                 (String) map.get("userId"),
-                rating,
+                SavedFields.requireInt(map, "rating"),
                 (String) map.get("comment"),
-                submittedAt);
+                submittedAt != null ? submittedAt : LocalDateTime.now());
     }
 }

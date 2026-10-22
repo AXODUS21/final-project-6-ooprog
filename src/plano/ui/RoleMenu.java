@@ -2,6 +2,7 @@ package plano.ui;
 
 import plano.model.Event;
 import plano.model.User;
+import plano.repository.DataSaveException;
 import plano.repository.DataStore;
 import plano.service.AuthService;
 import plano.service.EventService;
@@ -12,6 +13,8 @@ import plano.util.ConsoleIO;
 import plano.util.OperationCancelledException;
 import plano.util.TableRenderer;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -23,6 +26,18 @@ import java.util.List;
  * menu as a RoleMenu and calls display() without knowing which role it is.
  */
 public abstract class RoleMenu {
+    /**
+     * The sort orders a user can pick, in menu order (Strategy pattern). The sort menu is built
+     * from this list, so a new sort order is one new EventSortStrategy class plus one line here.
+     * The strategies hold no state, so every menu can share these objects.
+     */
+    private static final List<EventSortStrategy> SORT_STRATEGIES = Collections.unmodifiableList(Arrays.asList(
+            new SortByDateAscStrategy(),
+            new SortByDateDescStrategy(),
+            new SortByPopularityStrategy(),
+            new SortByTitleStrategy(),
+            new SortByCapacityStrategy()));
+
     protected final DataStore dataStore;
     protected final AuthService authService;
     protected final EventService eventService;
@@ -30,7 +45,7 @@ public abstract class RoleMenu {
     protected final FeedbackService feedbackService;
 
     /** Sort order used when this role browses events (Strategy pattern). */
-    protected EventSortStrategy currentSortStrategy = new SortByDateAscStrategy();
+    protected EventSortStrategy currentSortStrategy = SORT_STRATEGIES.get(0);
 
     protected RoleMenu(DataStore dataStore, AuthService authService, EventService eventService,
                        RegistrationService registrationService, FeedbackService feedbackService) {
@@ -42,8 +57,8 @@ public abstract class RoleMenu {
     }
 
     /**
-     * Shows this role's menu until the user logs out. A cancelled operation
-     * returns here instead of ending the session.
+     * Shows this role's menu until the user logs out. A cancelled operation, or a change
+     * that could not be saved, returns here with a message instead of ending the session.
      */
     public final void display() {
         while (authService.isLoggedIn()) {
@@ -63,6 +78,9 @@ public abstract class RoleMenu {
                 handleOption(choice);
             } catch (OperationCancelledException cancelled) {
                 ConsoleIO.printWarning("Operation cancelled. Returning to the menu.");
+                ConsoleIO.pause();
+            } catch (DataSaveException saveFailed) {
+                ConsoleIO.printError(saveFailed.getMessage());
                 ConsoleIO.pause();
             }
         }
@@ -107,7 +125,7 @@ public abstract class RoleMenu {
         );
 
         for (Event e : events) {
-            int confirmed = registrationService.getConfirmedCount(e.getEventId());
+            int confirmed = registrationService.getSeatsTaken(e.getEventId());
             int waitlisted = registrationService.getWaitlistCount(e.getEventId());
             String capStr = confirmed + "/" + e.getCapacity();
             String startStr = e.getStartDateTime() != null ? e.getStartDateTime().format(ConsoleIO.DATE_TIME_FORMATTER) : "N/A";
@@ -127,44 +145,34 @@ public abstract class RoleMenu {
         table.render();
     }
 
-    /** Prints the header and the five sort choices every sort/filter screen starts with. */
+    /**
+     * Prints the header and one numbered choice per sort strategy (1 to {@link #sortOptionCount()}),
+     * using each strategy's own name and description.
+     */
     protected void printSortOptions() {
         ConsoleIO.printSection("Configure Search, Filter & Strategy Sorting");
         System.out.println("Active Sort Strategy: " + ConsoleIO.BOLD + currentSortStrategy.getName() + ConsoleIO.RESET);
-        System.out.println("1. Date (Earliest First)");
-        System.out.println("2. Date (Latest First)");
-        System.out.println("3. Popularity (Most Registrations First)");
-        System.out.println("4. Alphabetical (Title A - Z)");
-        System.out.println("5. Capacity (Largest Venue First)");
+        for (int i = 0; i < SORT_STRATEGIES.size(); i++) {
+            EventSortStrategy strategy = SORT_STRATEGIES.get(i);
+            System.out.println((i + 1) + ". " + strategy.getName() + " - " + strategy.getDescription());
+        }
+    }
+
+    /** How many sort choices {@link #printSortOptions()} prints; a screen numbers its own options after these. */
+    protected int sortOptionCount() {
+        return SORT_STRATEGIES.size();
     }
 
     /**
-     * Switches to the sort strategy for choices 1 to 5.
+     * Switches to the sort strategy for a choice from 1 to {@link #sortOptionCount()}.
      *
      * @return false if the choice is not one of the sort choices
      */
     protected boolean applySortChoice(int choice) {
-        EventSortStrategy chosen;
-        switch (choice) {
-            case 1:
-                chosen = new SortByDateAscStrategy();
-                break;
-            case 2:
-                chosen = new SortByDateDescStrategy();
-                break;
-            case 3:
-                chosen = new SortByPopularityStrategy();
-                break;
-            case 4:
-                chosen = new SortByTitleStrategy();
-                break;
-            case 5:
-                chosen = new SortByCapacityStrategy();
-                break;
-            default:
-                return false;
+        if (choice < 1 || choice > SORT_STRATEGIES.size()) {
+            return false;
         }
-        currentSortStrategy = chosen;
+        currentSortStrategy = SORT_STRATEGIES.get(choice - 1);
         ConsoleIO.printSuccess("Swapped sorting strategy to: " + currentSortStrategy.getName());
         return true;
     }

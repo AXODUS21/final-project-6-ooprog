@@ -19,7 +19,7 @@ public class SortByTitleStrategy implements EventSortStrategy {
 
     @Override
     public String getDescription() {
-        return "Events arranged alphabetically by event title.";
+        return "Events in A to Z order by title.";
     }
 
     @Override
