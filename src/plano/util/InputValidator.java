@@ -15,10 +15,12 @@ public final class InputValidator {
             "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
     );
 
+    /** Alphanumeric usernames allowing dots, underscores, and dashes (3-30 characters). */
     private static final Pattern USERNAME_PATTERN = Pattern.compile(
             "^[a-zA-Z0-9_.-]{3,30}$"
     );
 
+    /** Allowed characters for personal names (letters, spaces, periods, apostrophes, and hyphens). */
     private static final Pattern FULL_NAME_PATTERN = Pattern.compile(
             "^[a-zA-Z\\s.'-]{2,50}$"
     );
